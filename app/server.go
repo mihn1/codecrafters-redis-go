@@ -26,12 +26,12 @@ func main() {
 			fmt.Println("Error accepting connection: ", err.Error())
 			os.Exit(1)
 		}
-		handleRequest(conn)
+		go handleRequest(conn)
 	}
 }
 
 func handleRequest(conn net.Conn) {
-	fmt.Println("Received connection from: ", conn.RemoteAddr())
+	fmt.Println("Received connection from:", conn.RemoteAddr())
 	reader := bufio.NewReader(conn)
 	buf := make([]byte, 1024)
 
@@ -45,7 +45,7 @@ func handleRequest(conn net.Conn) {
 		}
 
 		message := string(buf)
-		fmt.Println("Received message:", message)
+		fmt.Printf("Client %v sent message: %v\n", conn.RemoteAddr(), message)
 
 		res := "+PONG\r\n"
 		conn.Write([]byte(res))
