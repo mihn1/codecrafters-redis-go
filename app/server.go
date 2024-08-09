@@ -7,8 +7,11 @@ import (
 	"net"
 	"os"
 
-	"github.com/codecrafters-io/redis-starter-go/app/utils"
+	"github.com/codecrafters-io/redis-starter-go/internal"
+	"github.com/codecrafters-io/redis-starter-go/resp"
 )
+
+var db *internal.DB
 
 func main() {
 	addr := "0.0.0.0:6379"
@@ -21,12 +24,15 @@ func main() {
 	defer l.Close()
 	fmt.Println("Listening on:", addr)
 
+	db = internal.NewDB(&internal.DBOptions{})
+
 	for {
 		conn, err := l.Accept()
 		if err != nil {
 			fmt.Println("Error accepting connection: ", err.Error())
 			os.Exit(1)
 		}
+
 		go handleConnection(conn)
 	}
 }
@@ -50,13 +56,13 @@ func handleConnection(conn net.Conn) {
 		message := string(data)
 		fmt.Printf("Client %v sent message: %v\n", conn.RemoteAddr(), message)
 
-		command, err := utils.ParseCommand(message)
+		command, err := resp.ParseCommand(message)
 		if err != nil {
 			fmt.Println("Error parsing command", err)
 			continue
 		}
 
-		res := utils.HandleCommand(command)
+		res := resp.HandleCommand(db, command)
 		conn.Write([]byte(res))
 	}
 }

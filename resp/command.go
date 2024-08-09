@@ -1,4 +1,4 @@
-package utils
+package resp
 
 import (
 	"fmt"
@@ -6,39 +6,9 @@ import (
 	"strings"
 )
 
-type CommandType int
-
-const (
-	Ping = iota
-	Echo
-	Unknown
-)
-
 type Command struct {
-	commandType CommandType
-	agrs        []string
-}
-
-var commandHandlers = map[CommandType]func([]string) string{
-	Ping:    ping,
-	Echo:    echo,
-	Unknown: unknown,
-}
-
-func ping(args []string) string {
-	return "+PONG\r\n"
-}
-
-func echo(args []string) string {
-	return fmt.Sprintf("$%d\r\n%s\r\n", len(args[0]), args[0])
-}
-
-func unknown(args []string) string {
-	return fmt.Sprintf("-ERR unknown command '%s'\r\n", args[0])
-}
-
-func HandleCommand(command Command) string {
-	return commandHandlers[command.commandType](command.agrs)
+	CommandType CommandType
+	Agrs        []string
 }
 
 func ParseCommand(raw string) (Command, error) {
@@ -49,15 +19,14 @@ func ParseCommand(raw string) (Command, error) {
 		return command, err
 	}
 
-	commandType := parseCommandType(tokens[0])
-	command.commandType = commandType
-	command.agrs = tokens[1:]
+	commandType := resolveCommandType(tokens[0])
+	command.CommandType = commandType
+	command.Agrs = tokens[1:]
 
 	return command, nil
 }
 
 func parseArray(raw string) ([]string, error) {
-	// *2\r\n$4\r\nECHO\r\n$3\r\nhey\r\n -> ["ECHO", "hey"]
 	var arr []string
 	rawTokens := strings.Split(raw, "\r\n")
 	for len(rawTokens) > 0 {
@@ -91,6 +60,23 @@ func parseArray(raw string) ([]string, error) {
 	return arr, nil
 }
 
+func parseBulkString(sizeIdentifier string, raw string) (string, error) {
+	if len(sizeIdentifier) < 2 {
+		return "", nil
+	}
+
+	le, err := strconv.Atoi(sizeIdentifier[1:])
+	if err != nil {
+		return "", err
+	}
+
+	if le != len(raw) {
+		return "", fmt.Errorf("invalid bulk string length")
+	}
+
+	return raw, nil
+}
+
 func resolveNextToken(tokens []string) (string, []string, error) {
 	// token is ensured not empty here
 	var token string
@@ -113,33 +99,4 @@ func resolveNextToken(tokens []string) (string, []string, error) {
 	}
 
 	return token, tokens, err
-}
-
-func parseBulkString(sizeIdentifier string, raw string) (string, error) {
-	if len(sizeIdentifier) < 2 {
-		return "", nil
-	}
-
-	le, err := strconv.Atoi(sizeIdentifier[1:])
-	if err != nil {
-		return "", err
-	}
-
-	if le != len(raw) {
-		return "", fmt.Errorf("invalid bulk string length")
-	}
-
-	return raw, nil
-}
-
-func parseCommandType(raw string) CommandType {
-	raw = strings.ToLower(raw)
-	switch raw {
-	case "ping":
-		return Ping
-	case "echo":
-		return Echo
-	default:
-		return Unknown
-	}
 }
