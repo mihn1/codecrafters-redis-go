@@ -1,24 +1,25 @@
 package main
 
 import (
-	"bufio"
+	"bytes"
 	"fmt"
 	"io"
-
-	// Uncomment this block to pass the first stage
 	"net"
 	"os"
+
+	"github.com/codecrafters-io/redis-starter-go/app/utils"
 )
 
 func main() {
-	fmt.Println("Logs from your program will appear here!")
+	addr := "0.0.0.0:6379"
 
-	l, err := net.Listen("tcp", "0.0.0.0:6379")
+	l, err := net.Listen("tcp", addr)
 	if err != nil {
 		fmt.Println("Failed to bind to port 6379")
 		os.Exit(1)
 	}
 	defer l.Close()
+	fmt.Println("Listening on:", addr)
 
 	for {
 		conn, err := l.Accept()
@@ -26,28 +27,36 @@ func main() {
 			fmt.Println("Error accepting connection: ", err.Error())
 			os.Exit(1)
 		}
-		go handleRequest(conn)
+		go handleConnection(conn)
 	}
 }
 
-func handleRequest(conn net.Conn) {
+func handleConnection(conn net.Conn) {
+	defer conn.Close()
+
 	fmt.Println("Received connection from:", conn.RemoteAddr())
-	reader := bufio.NewReader(conn)
 	buf := make([]byte, 1024)
 
 	for {
-		_, err := reader.Read(buf)
+		_, err := conn.Read(buf)
 		if err != nil {
 			if err == io.EOF {
-				return
+				break
 			}
 			fmt.Println("Error reading", err)
 		}
 
-		message := string(buf)
+		data := bytes.Trim(buf, "\x00")
+		message := string(data)
 		fmt.Printf("Client %v sent message: %v\n", conn.RemoteAddr(), message)
 
-		res := "+PONG\r\n"
+		command, err := utils.ParseCommand(message)
+		if err != nil {
+			fmt.Println("Error parsing command", err)
+			continue
+		}
+
+		res := utils.HandleCommand(command)
 		conn.Write([]byte(res))
 	}
 }
