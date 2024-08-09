@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"io"
 
 	// Uncomment this block to pass the first stage
 	"net"
@@ -19,27 +20,34 @@ func main() {
 	}
 	defer l.Close()
 
-	conn, err := l.Accept()
-	if err != nil {
-		fmt.Println("Error accepting connection: ", err.Error())
-		os.Exit(1)
+	for {
+		conn, err := l.Accept()
+		if err != nil {
+			fmt.Println("Error accepting connection: ", err.Error())
+			os.Exit(1)
+		}
+		handleRequest(conn)
 	}
-	defer conn.Close()
-
-	handleRequest(conn)
 }
 
 func handleRequest(conn net.Conn) {
 	fmt.Println("Received connection from: ", conn.RemoteAddr())
-
 	reader := bufio.NewReader(conn)
-	message, err := reader.ReadString('\n')
-	if err != nil {
-		fmt.Println("Error reading")
-		return
-	}
-	fmt.Println("Received message:", message)
+	buf := make([]byte, 1024)
 
-	res := "+PONG\r\n"
-	conn.Write([]byte(res))
+	for {
+		_, err := reader.Read(buf)
+		if err != nil {
+			if err == io.EOF {
+				return
+			}
+			fmt.Println("Error reading", err)
+		}
+
+		message := string(buf)
+		fmt.Println("Received message:", message)
+
+		res := "+PONG\r\n"
+		conn.Write([]byte(res))
+	}
 }
