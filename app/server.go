@@ -7,21 +7,19 @@ import (
 	"io"
 	"net"
 	"os"
+	"strconv"
 
 	"github.com/codecrafters-io/redis-starter-go/internal"
 	"github.com/codecrafters-io/redis-starter-go/resp"
 )
 
-var db *internal.DB
+type Server struct {
+	db   *internal.DB
+	port int
+}
 
-func main() {
-	dir := flag.String("dir", "/tmp/redis-files", "Directory to store RDB files")
-	dbFileName := flag.String("dbfilename", "dump.rdb", "Name of the RDB file")
-
-	flag.Parse()
-
-	addr := "0.0.0.0:6379"
-
+func (s *Server) run() {
+	addr := fmt.Sprintf("0.0.0.0:%d", s.port)
 	l, err := net.Listen("tcp", addr)
 	if err != nil {
 		fmt.Println("Failed to bind to port 6379")
@@ -30,12 +28,6 @@ func main() {
 	defer l.Close()
 	fmt.Println("Listening on:", addr)
 
-	option := internal.DBOptions{
-		Dir:        *dir,
-		DbFilename: *dbFileName,
-	}
-	db = internal.NewDB(option)
-
 	for {
 		conn, err := l.Accept()
 		if err != nil {
@@ -43,11 +35,11 @@ func main() {
 			os.Exit(1)
 		}
 
-		go handleConnection(conn)
+		go s.handleConnection(conn)
 	}
 }
 
-func handleConnection(conn net.Conn) {
+func (server *Server) handleConnection(conn net.Conn) {
 	defer conn.Close()
 
 	fmt.Println("Received connection from:", conn.RemoteAddr())
@@ -72,7 +64,25 @@ func handleConnection(conn net.Conn) {
 			continue
 		}
 
-		res := resp.HandleCommand(db, command)
+		res := resp.HandleCommand(server.db, command)
 		conn.Write([]byte(res))
 	}
+}
+
+func main() {
+	portStr := flag.String("port", "6379", "Port to listen on")
+	dir := flag.String("dir", "/tmp/redis-files", "Directory to store RDB files")
+	dbFileName := flag.String("dbfilename", "dump.rdb", "Name of the RDB file")
+
+	flag.Parse()
+
+	port, err := strconv.Atoi(*portStr)
+	if err != nil {
+		fmt.Println("Error parsing port:", err)
+		os.Exit(1)
+	}
+
+	server := &Server{port: port}
+	server.db = internal.NewDB(internal.DBOptions{Dir: *dir, DbFilename: *dbFileName})
+	server.run()
 }
