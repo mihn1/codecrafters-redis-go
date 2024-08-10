@@ -6,27 +6,7 @@ import (
 	"strings"
 )
 
-type Command struct {
-	CommandType CommandType
-	Agrs        []string
-}
-
-func ParseCommand(raw string) (Command, error) {
-	var command Command
-
-	tokens, err := parseArray(strings.TrimSpace(strings.ToLower(raw)))
-	if err != nil {
-		return command, err
-	}
-
-	commandType := resolveCommandType(tokens[0])
-	command.CommandType = commandType
-	command.Agrs = tokens[1:]
-
-	return command, nil
-}
-
-func parseArray(raw string) ([]string, error) {
+func ParseArray(raw string) ([]string, error) {
 	var arr []string
 	rawTokens := strings.Split(raw, "\r\n")
 	for len(rawTokens) > 0 {
@@ -60,7 +40,7 @@ func parseArray(raw string) ([]string, error) {
 	return arr, nil
 }
 
-func parseBulkString(sizeIdentifier string, raw string) (string, error) {
+func ParseBulkString(sizeIdentifier string, raw string) (string, error) {
 	if len(sizeIdentifier) < 2 {
 		return "", fmt.Errorf("invalid bulk string size identifier")
 	}
@@ -90,7 +70,7 @@ func resolveNextToken(tokens []string) (string, []string, error) {
 			return token, tokens, fmt.Errorf("invalid bulk string")
 		}
 
-		token, err = parseBulkString(identifier, tokens[1])
+		token, err = ParseBulkString(identifier, tokens[1])
 		if err == nil {
 			tokens = tokens[2:]
 		}

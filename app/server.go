@@ -10,7 +10,6 @@ import (
 	"strconv"
 
 	"github.com/codecrafters-io/redis-starter-go/internal"
-	"github.com/codecrafters-io/redis-starter-go/resp"
 )
 
 type Server struct {
@@ -58,13 +57,13 @@ func (server *Server) handleConnection(conn net.Conn) {
 		message := string(data)
 		fmt.Printf("Client %v sent message: %v\n", conn.RemoteAddr(), message)
 
-		command, err := resp.ParseCommand(message)
+		command, err := ParseCommand(message)
 		if err != nil {
 			fmt.Println("Error parsing command", err)
 			continue
 		}
 
-		res := resp.HandleCommand(server.db, command)
+		res := HandleCommand(server, command)
 		conn.Write([]byte(res))
 	}
 }

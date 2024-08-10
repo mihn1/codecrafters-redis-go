@@ -10,22 +10,22 @@ const (
 	NULL_ARRAY       = "*-1\r\n"
 )
 
-func encodeBulkString(val string) string {
+func EncodeBulkString(val string) string {
 	return fmt.Sprintf("$%d\r\n%s\r\n", len(val), val)
 }
 
-func encodeSimpleString(val string) string {
+func EncodeSimpleString(val string) string {
 	return fmt.Sprintf("+%s\r\n", val)
 }
 
-func encodeArrayBulkStrings(vals []string) string {
+func EncodeArrayBulkStrings(vals []string) string {
 	bulkStrings := make([]string, 0, len(vals))
 	for _, val := range vals {
-		bulkStrings = append(bulkStrings, encodeBulkString(val))
+		bulkStrings = append(bulkStrings, EncodeBulkString(val))
 	}
 	return fmt.Sprintf("*%d\r\n%s", len(vals), strings.Join(bulkStrings, ""))
 }
 
-func encodeError(val string) string {
+func EncodeError(val string) string {
 	return fmt.Sprintf("-%s\r\n", val)
 }
