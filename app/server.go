@@ -13,8 +13,10 @@ import (
 )
 
 type Server struct {
-	db   *internal.DB
-	port int
+	db         *internal.DB
+	port       int
+	isMaster   bool
+	masterAddr string
 }
 
 func (s *Server) run() {
@@ -71,6 +73,7 @@ func (server *Server) handleConnection(conn net.Conn) {
 func main() {
 	portStr := flag.String("port", "6379", "Port to listen on")
 	dir := flag.String("dir", "/tmp/redis-files", "Directory to store RDB files")
+	replicaof := flag.String("replicaof", "", "Replica of host:port")
 	dbFileName := flag.String("dbfilename", "dump.rdb", "Name of the RDB file")
 
 	flag.Parse()
@@ -81,7 +84,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	server := &Server{port: port}
+	server := &Server{
+		port:     port,
+		isMaster: true,
+	}
+
+	if *replicaof != "" {
+		server.isMaster = false
+		server.masterAddr = *replicaof
+	}
+
 	server.db = internal.NewDB(internal.DBOptions{Dir: *dir, DbFilename: *dbFileName})
 	server.run()
 }

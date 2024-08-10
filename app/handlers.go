@@ -113,11 +113,18 @@ func config(s *Server, args []string) string {
 }
 
 func info(s *Server, args []string) string {
-	if len(args) == 0 {
-		return resp.EncodeBulkString("role:master")
+	var role string
+	if s.isMaster {
+		role = "master"
+	} else {
+		role = "slave"
 	}
 
-	return resp.EncodeBulkString("role:master")
+	if len(args) == 0 {
+		// TODO: add more info
+	}
+
+	return resp.EncodeBulkString("role:" + role)
 }
 
 func unknown(s *Server, args []string) string {
