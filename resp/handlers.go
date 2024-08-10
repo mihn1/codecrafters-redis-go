@@ -13,6 +13,7 @@ var commandHandlers = map[CommandType]func(*internal.DB, []string) string{
 	Echo:    echo,
 	Set:     set,
 	Get:     get,
+	Config:  config,
 	Unknown: unknown,
 }
 
@@ -69,7 +70,7 @@ func set(db *internal.DB, args []string) string {
 			return encodeError(err.Error())
 		}
 	} else {
-		expiry = time.Now().Add(time.Duration(db.Options.ExpireTime) * time.Millisecond)
+		expiry = time.Now().Add(time.Duration(db.Options.ExpiryTime) * time.Millisecond)
 	}
 
 	value := internal.Value{Value: args[1], ExpiredTime: expiry}
@@ -79,6 +80,29 @@ func set(db *internal.DB, args []string) string {
 
 func unknown(db *internal.DB, args []string) string {
 	return encodeError("ERR unknown command")
+}
+
+func config(db *internal.DB, args []string) string {
+	if len(args) == 0 {
+		return encodeError("ERR wrong number of arguments for CONFIG commands")
+	}
+
+	if args[0] == "get" {
+		if len(args) != 2 {
+			return encodeError("ERR wrong number of arguments for CONFIG GET")
+		}
+
+		switch args[1] {
+		case "dir":
+			return encodeArrayBulkStrings([]string{"dir", db.Options.Dir})
+		case "dbfilename":
+			return encodeArrayBulkStrings([]string{"dbfilename", db.Options.DbFilename})
+		default:
+			return encodeError("ERR unknown CONFIG parameter")
+		}
+	}
+
+	return encodeError("ERR unknown CONFIG subcommand")
 }
 
 func resolveExpiry(expiryType string, expiryNum int) (time.Time, error) {

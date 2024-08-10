@@ -9,6 +9,7 @@ const (
 	Echo
 	Get
 	Set
+	Config
 	Unknown
 )
 
@@ -23,6 +24,8 @@ func resolveCommandType(raw string) CommandType {
 		return Get
 	case "set":
 		return Set
+	case "config":
+		return Config
 	default:
 		return Unknown
 	}

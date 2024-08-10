@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"flag"
 	"fmt"
 	"io"
 	"net"
@@ -14,6 +15,11 @@ import (
 var db *internal.DB
 
 func main() {
+	dir := flag.String("dir", "/tmp/redis-files", "Directory to store RDB files")
+	dbFileName := flag.String("dbfilename", "dump.rdb", "Name of the RDB file")
+
+	flag.Parse()
+
 	addr := "0.0.0.0:6379"
 
 	l, err := net.Listen("tcp", addr)
@@ -24,7 +30,11 @@ func main() {
 	defer l.Close()
 	fmt.Println("Listening on:", addr)
 
-	db = internal.NewDB(internal.DBOptions{})
+	option := internal.DBOptions{
+		Dir:        *dir,
+		DbFilename: *dbFileName,
+	}
+	db = internal.NewDB(option)
 
 	for {
 		conn, err := l.Accept()

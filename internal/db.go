@@ -13,8 +13,8 @@ type DB struct {
 }
 
 func NewDB(options DBOptions) *DB {
-	if options.ExpireTime == 0 {
-		options.ExpireTime = 60_000 // 1 minute
+	if options.ExpiryTime == 0 {
+		options.ExpiryTime = 60_000 // 1 minute
 	}
 
 	return &DB{

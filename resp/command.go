@@ -14,7 +14,7 @@ type Command struct {
 func ParseCommand(raw string) (Command, error) {
 	var command Command
 
-	tokens, err := parseArray(strings.TrimSpace(raw))
+	tokens, err := parseArray(strings.TrimSpace(strings.ToLower(raw)))
 	if err != nil {
 		return command, err
 	}
@@ -62,7 +62,7 @@ func parseArray(raw string) ([]string, error) {
 
 func parseBulkString(sizeIdentifier string, raw string) (string, error) {
 	if len(sizeIdentifier) < 2 {
-		return "", nil
+		return "", fmt.Errorf("invalid bulk string size identifier")
 	}
 
 	le, err := strconv.Atoi(sizeIdentifier[1:])
