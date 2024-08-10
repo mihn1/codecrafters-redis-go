@@ -24,7 +24,7 @@ func main() {
 	defer l.Close()
 	fmt.Println("Listening on:", addr)
 
-	db = internal.NewDB(&internal.DBOptions{})
+	db = internal.NewDB(internal.DBOptions{})
 
 	for {
 		conn, err := l.Accept()
