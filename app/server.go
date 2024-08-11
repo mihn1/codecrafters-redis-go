@@ -2,15 +2,24 @@ package main
 
 import (
 	"bytes"
-	"flag"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/codecrafters-io/redis-starter-go/internal"
+	"github.com/codecrafters-io/redis-starter-go/resp"
 )
+
+type ServerOptions struct {
+	Replicaof  string
+	DbFilename string
+	Dir        string
+	Port       int
+}
 
 type Server struct {
 	db       *internal.DB
@@ -26,23 +35,58 @@ type MasterInfo struct {
 }
 
 type SlaveInfo struct {
-	replicaof string
+	masterHost string
+	masterPort int
 }
 
-func (s *Server) run() {
+func NewServer(options ServerOptions) *Server {
+	server := &Server{
+		port: options.Port,
+	}
+
+	if options.Replicaof == "" {
+		server.isMaster = true
+		server.master.replid = generateReplId()
+		server.master.repl_offset = 0
+	} else {
+		server.isMaster = false
+		splitted := strings.Split(options.Replicaof, " ")
+		if len(splitted) != 2 {
+			log.Println("Invalid replicaof format")
+			os.Exit(1)
+		}
+		server.slave.masterHost = splitted[0]
+		port, err := strconv.Atoi(splitted[1])
+		if err != nil {
+			log.Println("Invalid master port:", err)
+			os.Exit(1)
+		}
+		server.slave.masterPort = port
+	}
+
+	server.db = internal.NewDB(internal.DBOptions{Dir: options.Dir, DbFilename: options.DbFilename})
+	return server
+}
+
+func (s *Server) Run() {
+	if !s.isMaster {
+		// sync to master
+		syncWithMaster(s)
+	}
+
 	addr := fmt.Sprintf("0.0.0.0:%d", s.port)
 	l, err := net.Listen("tcp", addr)
 	if err != nil {
-		fmt.Println("Failed to bind to port 6379")
+		log.Println("Failed to bind to port 6379")
 		os.Exit(1)
 	}
 	defer l.Close()
-	fmt.Println("Listening on:", addr)
+	log.Println("Listening on:", addr)
 
 	for {
 		conn, err := l.Accept()
 		if err != nil {
-			fmt.Println("Error accepting connection: ", err.Error())
+			log.Println("Error accepting connection: ", err.Error())
 			os.Exit(1)
 		}
 
@@ -53,7 +97,7 @@ func (s *Server) run() {
 func (server *Server) handleConnection(conn net.Conn) {
 	defer conn.Close()
 
-	fmt.Println("Received connection from:", conn.RemoteAddr())
+	log.Println("Received connection from:", conn.RemoteAddr())
 	buf := make([]byte, 1024)
 
 	for {
@@ -62,7 +106,7 @@ func (server *Server) handleConnection(conn net.Conn) {
 			if err == io.EOF {
 				break
 			}
-			fmt.Println("Error reading", err)
+			log.Println("Error reading", err)
 		}
 
 		data := bytes.Trim(buf, "\x00")
@@ -71,7 +115,7 @@ func (server *Server) handleConnection(conn net.Conn) {
 
 		command, err := ParseCommand(message)
 		if err != nil {
-			fmt.Println("Error parsing command", err)
+			log.Println("Error parsing command", err)
 			continue
 		}
 
@@ -86,42 +130,43 @@ func generateReplId() string {
 	// buf := make([]byte, 30)
 	// _, err := rand.Read(buf)
 	// if err != nil {
-	// 	fmt.Println("Error generating repl id", err)
+	// 	log.Println("Error generating repl id", err)
 	// 	os.Exit(1)
 	// }
-
 	// base64Encode := base64.StdEncoding.EncodeToString(buf)
 	// id := fmt.Sprintf("%x", base64Encode)
 	// return id
 }
 
-func main() {
-	portStr := flag.String("port", "6379", "Port to listen on")
-	dir := flag.String("dir", "/tmp/redis-files", "Directory to store RDB files")
-	replicaof := flag.String("replicaof", "", "Replica of host:port")
-	dbFileName := flag.String("dbfilename", "dump.rdb", "Name of the RDB file")
+func syncWithMaster(s *Server) error {
+	err := sendHandshake(s)
+	return err
+}
 
-	flag.Parse()
-
-	port, err := strconv.Atoi(*portStr)
+func sendHandshake(s *Server) error {
+	masterAddr := fmt.Sprintf("%s:%d", s.slave.masterHost, s.slave.masterPort)
+	log.Println("Syncing...", masterAddr)
+	conn, err := net.Dial("tcp", masterAddr)
 	if err != nil {
-		fmt.Println("Error parsing port:", err)
-		os.Exit(1)
+		log.Fatalf("Error connecting to master: %v", err)
+		return err
 	}
 
-	server := &Server{
-		port: port,
+	return sendPing(s, conn)
+}
+
+func sendPing(s *Server, conn net.Conn) error {
+	message := resp.EncodeArrayBulkStrings([]string{"PING"})
+	_, err := conn.Write([]byte(message))
+	if err != nil {
+		return err
 	}
 
-	if *replicaof == "" {
-		server.isMaster = true
-		server.master.replid = generateReplId()
-		server.master.repl_offset = 0
-	} else {
-		server.isMaster = false
-		server.slave.replicaof = *replicaof
+	res, err := io.ReadAll(conn)
+	if err != nil {
+		return err
 	}
 
-	server.db = internal.NewDB(internal.DBOptions{Dir: *dir, DbFilename: *dbFileName})
-	server.run()
+	log.Printf("Received response: %s", string(res))
+	return nil
 }
