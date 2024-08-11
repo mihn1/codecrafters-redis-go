@@ -17,6 +17,7 @@ const (
 
 	// Other commands
 	Info
+	ReplConf
 	Config
 
 	Unknown
@@ -36,6 +37,8 @@ func resolveCommandType(raw string) CommandType {
 
 	case "info":
 		return Info
+	case "replconf":
+		return ReplConf
 	case "config":
 		return Config
 	default:

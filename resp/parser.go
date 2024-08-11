@@ -40,6 +40,14 @@ func ParseArray(raw string) ([]string, error) {
 	return arr, nil
 }
 
+func ParseSimpleString(raw string) (string, error) {
+	if len(raw) < 2 {
+		return "", fmt.Errorf("invalid simple string length")
+	}
+
+	return raw[1 : len(raw)-2], nil
+}
+
 func ParseBulkString(sizeIdentifier string, raw string) (string, error) {
 	if len(sizeIdentifier) < 2 {
 		return "", fmt.Errorf("invalid bulk string size identifier")

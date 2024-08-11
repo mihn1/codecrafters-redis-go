@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 
@@ -10,13 +11,14 @@ import (
 )
 
 var commandHandlers = map[CommandType]func(*Server, []string) string{
-	Ping:    ping,
-	Echo:    echo,
-	Set:     set,
-	Get:     get,
-	Info:    info,
-	Config:  config,
-	Unknown: unknown,
+	Ping:     ping,
+	Echo:     echo,
+	Set:      set,
+	Get:      get,
+	Info:     info,
+	Config:   config,
+	ReplConf: replConf,
+	Unknown:  unknown,
 }
 
 func HandleCommand(s *Server, command Command) string {
@@ -139,6 +141,31 @@ func info(s *Server, args []string) string {
 	}
 
 	return resp.EncodeBulkString(strings.Join(infos, "\n"))
+}
+
+func replConf(_ *Server, args []string) string {
+	if len(args) == 0 {
+		return resp.EncodeError("ERR wrong number of arguments for REPLCONFIG subcommand")
+	}
+
+	switch args[0] {
+	case "listening-port":
+		if len(args) != 2 {
+			return resp.EncodeError("ERR wrong number of arguments for REPLCONFIG listening-port subcommand")
+		}
+		portStr := args[1]
+		log.Println("Replica is listening on port:", portStr)
+	case "capa":
+		if len(args) < 2 {
+			return resp.EncodeError("ERR wrong number of arguments for REPLCONFIG capa subcommand")
+		}
+		capaStr := args[1]
+		log.Println("Replica supports:", capaStr)
+	default:
+		return resp.EncodeError("ERR unknown REPLCONFIG subcommand")
+	}
+
+	return resp.EncodeSimpleString("OK")
 }
 
 func unknown(s *Server, args []string) string {

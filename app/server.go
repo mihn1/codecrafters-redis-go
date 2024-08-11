@@ -139,11 +139,11 @@ func generateReplId() string {
 }
 
 func syncWithMaster(s *Server) error {
-	err := sendHandshake(s)
+	err := handshake(s)
 	return err
 }
 
-func sendHandshake(s *Server) error {
+func handshake(s *Server) error {
 	masterAddr := fmt.Sprintf("%s:%d", s.slave.masterHost, s.slave.masterPort)
 	log.Println("Syncing...", masterAddr)
 	conn, err := net.Dial("tcp", masterAddr)
@@ -151,22 +151,80 @@ func sendHandshake(s *Server) error {
 		log.Fatalf("Error connecting to master: %v", err)
 		return err
 	}
+	defer conn.Close()
 
-	return sendPing(s, conn)
+	log.Println("Sending PING to master")
+	err = sendPing(s, conn)
+	if err != nil {
+		return err
+	}
+	// time.Sleep(2 * time.Second)
+	log.Println("Sending replication config to master")
+	err = sendReplConfig(s, conn)
+	return err
 }
 
 func sendPing(s *Server, conn net.Conn) error {
-	message := resp.EncodeArrayBulkStrings([]string{"PING"})
-	_, err := conn.Write([]byte(message))
+	err := sendMaster(conn, resp.EncodeArrayBulkStrings([]string{"PING"}))
 	if err != nil {
 		return err
 	}
 
-	res, err := io.ReadAll(conn)
+	// TODO: validate response
+	buf := make([]byte, 128)
+	n, err := conn.Read(buf)
 	if err != nil {
 		return err
 	}
 
-	log.Printf("Received response: %s", string(res))
+	res := string(buf[:n])
+	log.Println("Received from master:", res)
+	parsed, err := resp.ParseSimpleString(res)
+	if err != nil {
+		return err
+	}
+
+	log.Println("Received from master after PING:", parsed)
+	if parsed != "PONG" {
+		return fmt.Errorf("invalid response")
+	}
+
 	return nil
+}
+
+func sendReplConfig(s *Server, conn net.Conn) error {
+	message := resp.EncodeArrayBulkStrings([]string{"REPLCONF", "listening-port", strconv.Itoa(s.port)})
+	err := sendMaster(conn, message)
+	if err != nil {
+		return err
+	}
+
+	message = resp.EncodeArrayBulkStrings([]string{"REPLCONF", "capa", "psync2"})
+	err = sendMaster(conn, message)
+	if err != nil {
+		return err
+	}
+
+	// TODO: validate response
+	buf := make([]byte, 128)
+	n, err := conn.Read(buf)
+	if err != nil {
+		return err
+	}
+
+	res := string(buf[:n])
+	log.Println("Received from master:", res)
+	parsed, err := resp.ParseSimpleString(res)
+	if err != nil {
+		return err
+	}
+
+	log.Println("Received from master after REPLCONF:", parsed)
+	return err
+}
+
+func sendMaster(conn net.Conn, message string) error {
+	log.Println("Sending to master:", message)
+	_, err := conn.Write([]byte(message))
+	return err
 }
