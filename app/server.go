@@ -71,7 +71,11 @@ func NewServer(options ServerOptions) *Server {
 func (s *Server) Run() {
 	if !s.isMaster {
 		// sync to master
-		syncWithMaster(s)
+		err := syncWithMaster(s)
+		if err != nil {
+			log.Println("Error syncing with master:", err)
+			os.Exit(1)
+		}
 	}
 
 	addr := fmt.Sprintf("0.0.0.0:%d", s.port)
@@ -156,11 +160,23 @@ func handshake(s *Server) error {
 	log.Println("Sending PING to master")
 	err = sendPing(s, conn)
 	if err != nil {
+		log.Fatalf("Error sending PING: %v", err)
 		return err
 	}
-	// time.Sleep(2 * time.Second)
+
 	log.Println("Sending replication config to master")
 	err = sendReplConfig(s, conn)
+	if err != nil {
+		log.Fatalf("Error sending replication config: %v", err)
+		return err
+	}
+
+	err = sendPSYNC(s, conn)
+	if err != nil {
+		log.Fatalf("Error sending PSYNC: %v", err)
+		return err
+	}
+
 	return err
 }
 
@@ -170,31 +186,18 @@ func sendPing(s *Server, conn net.Conn) error {
 		return err
 	}
 
-	// TODO: validate response
-	buf := make([]byte, 128)
-	n, err := conn.Read(buf)
-	if err != nil {
-		return err
-	}
-
-	res := string(buf[:n])
-	log.Println("Received from master:", res)
-	parsed, err := resp.ParseSimpleString(res)
-	if err != nil {
-		return err
-	}
-
-	log.Println("Received from master after PING:", parsed)
-	if parsed != "PONG" {
-		return fmt.Errorf("invalid response")
-	}
-
-	return nil
+	err = decodeCheckSimpleString(conn, "PONG")
+	return err
 }
 
 func sendReplConfig(s *Server, conn net.Conn) error {
 	message := resp.EncodeArrayBulkStrings([]string{"REPLCONF", "listening-port", strconv.Itoa(s.port)})
 	err := sendMaster(conn, message)
+	if err != nil {
+		return err
+	}
+
+	err = decodeCheckSimpleString(conn, "OK")
 	if err != nil {
 		return err
 	}
@@ -205,26 +208,41 @@ func sendReplConfig(s *Server, conn net.Conn) error {
 		return err
 	}
 
+	return decodeCheckSimpleString(conn, "OK")
+}
+
+func sendPSYNC(s *Server, conn net.Conn) error {
+	err := sendMaster(conn, resp.EncodeArrayBulkStrings([]string{"PSYNC", "?", "-1"}))
+	if err != nil {
+		return err
+	}
+
 	// TODO: validate response
-	buf := make([]byte, 128)
-	n, err := conn.Read(buf)
-	if err != nil {
-		return err
-	}
-
-	res := string(buf[:n])
-	log.Println("Received from master:", res)
-	parsed, err := resp.ParseSimpleString(res)
-	if err != nil {
-		return err
-	}
-
-	log.Println("Received from master after REPLCONF:", parsed)
-	return err
+	// err = decodeCheckSimpleString(conn, "FULLRESYNC <REPL_ID> 0")
+	return nil
 }
 
 func sendMaster(conn net.Conn, message string) error {
-	log.Println("Sending to master:", message)
 	_, err := conn.Write([]byte(message))
 	return err
+}
+
+func decodeCheckSimpleString(reader io.Reader, val string) error {
+	buf := make([]byte, 128)
+	n, err := reader.Read(buf)
+	if err != nil {
+		return err
+	}
+
+	raw := string(buf[:n])
+	parsed, err := resp.ParseSimpleString(raw)
+	if err != nil {
+		return err
+	}
+
+	if parsed != val {
+		return fmt.Errorf("invalid response")
+	}
+
+	return nil
 }
