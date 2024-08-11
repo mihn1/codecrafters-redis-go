@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"log"
@@ -105,7 +104,7 @@ func (server *Server) handleConnection(conn net.Conn) {
 	buf := make([]byte, 1024)
 
 	for {
-		_, err := conn.Read(buf)
+		n, err := conn.Read(buf)
 		if err != nil {
 			if err == io.EOF {
 				break
@@ -113,13 +112,12 @@ func (server *Server) handleConnection(conn net.Conn) {
 			log.Println("Error reading", err)
 		}
 
-		data := bytes.Trim(buf, "\x00")
-		message := string(data)
-		fmt.Printf("Client %v sent message: %v\n", conn.RemoteAddr(), message)
+		message := string(buf[:n])
+		log.Printf("SERVER: Client %v sent message: %v\n", conn.RemoteAddr(), message)
 
 		command, err := ParseCommand(message)
 		if err != nil {
-			log.Println("Error parsing command", err)
+			log.Fatalf("Error parsing command: %v - message: %v", err, message)
 			continue
 		}
 

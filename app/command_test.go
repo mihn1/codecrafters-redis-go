@@ -18,3 +18,16 @@ func TestParseEchoCommand(t *testing.T) {
 	assert.EqualValues(t, Echo, command.CommandType)
 	assert.Equal(t, []string{"hey"}, command.Agrs)
 }
+
+func TestParseREPLCONF_CAPACommand(t *testing.T) {
+	// *3\r\n$8\r\nREPLCONF\r\n$4\r\ncapa\r\n$6\r\npsync2\r\n -> ["REPLCONF", "capa", "psync2"]
+
+	raw := "*3\r\n$8\r\nREPLCONF\r\n$4\r\ncapa\r\n$6\r\npsync2\r\n"
+	command, err := ParseCommand(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assert.EqualValues(t, ReplConf, command.CommandType)
+	assert.Equal(t, []string{"hey"}, command.Agrs)
+}
