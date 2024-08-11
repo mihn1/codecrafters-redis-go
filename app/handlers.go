@@ -10,6 +10,12 @@ import (
 	"github.com/codecrafters-io/redis-starter-go/resp"
 )
 
+const (
+	OK         = "OK"
+	PONG       = "PONG"
+	FULLRESYNC = "FULLRESYNC"
+)
+
 var commandHandlers = map[CommandType]func(*Server, []string) string{
 	Ping:     ping,
 	Echo:     echo,
@@ -18,11 +24,19 @@ var commandHandlers = map[CommandType]func(*Server, []string) string{
 	Info:     info,
 	Config:   config,
 	ReplConf: replConf,
-	Unknown:  unknown,
+	Psync:    psync,
 }
 
 func HandleCommand(s *Server, command Command) string {
-	return commandHandlers[command.CommandType](s, command.Agrs)
+	handler := resolveHandler(command.CommandType)
+	return handler(s, command.Agrs)
+}
+
+func resolveHandler(command CommandType) func(*Server, []string) string {
+	if f, ok := commandHandlers[command]; ok {
+		return f
+	}
+	return unknown
 }
 
 func ping(s *Server, args []string) string {
@@ -78,7 +92,7 @@ func set(s *Server, args []string) string {
 	}
 
 	s.db.Set(key, val, expiryMilis)
-	return resp.EncodeSimpleString("OK")
+	return resp.EncodeSimpleString(OK)
 }
 
 func resolveExpiry(expiryType string, expiryNum int64) (int64, error) {
@@ -135,7 +149,7 @@ func info(s *Server, args []string) string {
 
 	if s.isMaster {
 		infos = append(infos,
-			"master_replid:"+s.master.replid,
+			"master_replid:"+s.master.repl_id,
 			"master_repl_offset:"+strconv.FormatInt(s.master.repl_offset, 10),
 		)
 	}
@@ -165,7 +179,18 @@ func replConf(_ *Server, args []string) string {
 		return resp.EncodeError("ERR unknown REPLCONFIG subcommand")
 	}
 
-	return resp.EncodeSimpleString("OK")
+	return resp.EncodeSimpleString(OK)
+}
+
+func psync(s *Server, args []string) string {
+	if !s.isMaster {
+		return resp.EncodeError("Not eligible to serve PSYNC")
+	}
+	if len(args) != 2 {
+		return resp.EncodeError("ERR wrong number of arguments for PSYNC")
+	}
+
+	return resp.EncodeSimpleString(fmt.Sprintf("%s %s 0", FULLRESYNC, s.master.repl_id))
 }
 
 func unknown(s *Server, args []string) string {

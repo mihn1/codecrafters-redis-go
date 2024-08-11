@@ -1,50 +1,29 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/codecrafters-io/redis-starter-go/resp"
 )
 
-type CommandType int
+type CommandType string
 
 const (
 	// Core commands
-	Ping = iota
-	Echo
-	Get
-	Set
+	Ping CommandType = "ping"
+	Echo CommandType = "echo"
+	Get  CommandType = "get"
+	Set  CommandType = "set"
 
 	// Other commands
-	Info
-	ReplConf
-	Config
+	Info     CommandType = "info"
+	ReplConf CommandType = "replconf"
+	Psync    CommandType = "psync"
+	Config   CommandType = "config"
 
-	Unknown
+	Unknown CommandType = "unknown"
 )
-
-func resolveCommandType(raw string) CommandType {
-	raw = strings.ToLower(raw)
-	switch raw {
-	case "ping":
-		return Ping
-	case "echo":
-		return Echo
-	case "get":
-		return Get
-	case "set":
-		return Set
-
-	case "info":
-		return Info
-	case "replconf":
-		return ReplConf
-	case "config":
-		return Config
-	default:
-		return Unknown
-	}
-}
 
 type Command struct {
 	CommandType CommandType
@@ -59,8 +38,11 @@ func ParseCommand(raw string) (Command, error) {
 		return command, err
 	}
 
-	commandType := resolveCommandType(tokens[0])
-	command.CommandType = commandType
+	if len(tokens) == 0 {
+		return command, fmt.Errorf("invalid command")
+	}
+
+	command.CommandType = CommandType(tokens[0])
 	command.Agrs = tokens[1:]
 
 	return command, nil

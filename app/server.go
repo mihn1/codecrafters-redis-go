@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/codecrafters-io/redis-starter-go/internal"
-	"github.com/codecrafters-io/redis-starter-go/resp"
 )
 
 type ServerOptions struct {
@@ -29,7 +28,7 @@ type Server struct {
 }
 
 type MasterInfo struct {
-	replid      string
+	repl_id     string
 	repl_offset int64
 }
 
@@ -45,7 +44,7 @@ func NewServer(options ServerOptions) *Server {
 
 	if options.Replicaof == "" {
 		server.isMaster = true
-		server.master.replid = generateReplId()
+		server.master.repl_id = generateReplId()
 		server.master.repl_offset = 0
 	} else {
 		server.isMaster = false
@@ -69,7 +68,7 @@ func NewServer(options ServerOptions) *Server {
 
 func (s *Server) Run() {
 	if !s.isMaster {
-		// sync to master
+		// sync with master
 		err := syncWithMaster(s)
 		if err != nil {
 			log.Println("Error syncing with master:", err)
@@ -138,109 +137,4 @@ func generateReplId() string {
 	// base64Encode := base64.StdEncoding.EncodeToString(buf)
 	// id := fmt.Sprintf("%x", base64Encode)
 	// return id
-}
-
-func syncWithMaster(s *Server) error {
-	err := handshake(s)
-	return err
-}
-
-func handshake(s *Server) error {
-	masterAddr := fmt.Sprintf("%s:%d", s.slave.masterHost, s.slave.masterPort)
-	log.Println("Syncing...", masterAddr)
-	conn, err := net.Dial("tcp", masterAddr)
-	if err != nil {
-		log.Fatalf("Error connecting to master: %v", err)
-		return err
-	}
-	defer conn.Close()
-
-	log.Println("Sending PING to master")
-	err = sendPing(s, conn)
-	if err != nil {
-		log.Fatalf("Error sending PING: %v", err)
-		return err
-	}
-
-	log.Println("Sending replication config to master")
-	err = sendReplConfig(s, conn)
-	if err != nil {
-		log.Fatalf("Error sending replication config: %v", err)
-		return err
-	}
-
-	err = sendPSYNC(s, conn)
-	if err != nil {
-		log.Fatalf("Error sending PSYNC: %v", err)
-		return err
-	}
-
-	return err
-}
-
-func sendPing(s *Server, conn net.Conn) error {
-	err := sendMaster(conn, resp.EncodeArrayBulkStrings([]string{"PING"}))
-	if err != nil {
-		return err
-	}
-
-	err = decodeCheckSimpleString(conn, "PONG")
-	return err
-}
-
-func sendReplConfig(s *Server, conn net.Conn) error {
-	message := resp.EncodeArrayBulkStrings([]string{"REPLCONF", "listening-port", strconv.Itoa(s.port)})
-	err := sendMaster(conn, message)
-	if err != nil {
-		return err
-	}
-
-	err = decodeCheckSimpleString(conn, "OK")
-	if err != nil {
-		return err
-	}
-
-	message = resp.EncodeArrayBulkStrings([]string{"REPLCONF", "capa", "psync2"})
-	err = sendMaster(conn, message)
-	if err != nil {
-		return err
-	}
-
-	return decodeCheckSimpleString(conn, "OK")
-}
-
-func sendPSYNC(s *Server, conn net.Conn) error {
-	err := sendMaster(conn, resp.EncodeArrayBulkStrings([]string{"PSYNC", "?", "-1"}))
-	if err != nil {
-		return err
-	}
-
-	// TODO: validate response
-	// err = decodeCheckSimpleString(conn, "FULLRESYNC <REPL_ID> 0")
-	return nil
-}
-
-func sendMaster(conn net.Conn, message string) error {
-	_, err := conn.Write([]byte(message))
-	return err
-}
-
-func decodeCheckSimpleString(reader io.Reader, val string) error {
-	buf := make([]byte, 128)
-	n, err := reader.Read(buf)
-	if err != nil {
-		return err
-	}
-
-	raw := string(buf[:n])
-	parsed, err := resp.ParseSimpleString(raw)
-	if err != nil {
-		return err
-	}
-
-	if parsed != val {
-		return fmt.Errorf("invalid response")
-	}
-
-	return nil
 }
