@@ -26,6 +26,10 @@ func EncodeArrayBulkStrings(vals []string) string {
 	return fmt.Sprintf("*%d\r\n%s", len(vals), strings.Join(bulkStrings, ""))
 }
 
+func EncodeFile(buf []byte) string {
+	return fmt.Sprintf("$%d\r\n%s", len(buf), string(buf))
+}
+
 func EncodeError(val string) string {
 	return fmt.Sprintf("-%s\r\n", val)
 }

@@ -1,8 +1,10 @@
 package main
 
 import (
+	"encoding/hex"
 	"fmt"
 	"log"
+	"net"
 	"strconv"
 	"strings"
 
@@ -14,9 +16,10 @@ const (
 	OK         = "OK"
 	PONG       = "PONG"
 	FULLRESYNC = "FULLRESYNC"
+	EMPTY_FILE = "524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2"
 )
 
-var commandHandlers = map[CommandType]func(*Server, []string) string{
+var commandHandlers = map[CommandType]func(*Server, net.Conn, []string) (int, error){
 	Ping:     ping,
 	Echo:     echo,
 	Set:      set,
@@ -27,49 +30,49 @@ var commandHandlers = map[CommandType]func(*Server, []string) string{
 	Psync:    psync,
 }
 
-func HandleCommand(s *Server, command Command) string {
+func HandleCommand(s *Server, c net.Conn, command Command) (int, error) {
 	handler := resolveHandler(command.CommandType)
-	return handler(s, command.Agrs)
+	return handler(s, c, command.Agrs)
 }
 
-func resolveHandler(command CommandType) func(*Server, []string) string {
+func resolveHandler(command CommandType) func(*Server, net.Conn, []string) (int, error) {
 	if f, ok := commandHandlers[command]; ok {
 		return f
 	}
 	return unknown
 }
 
-func ping(s *Server, args []string) string {
-	return resp.EncodeSimpleString("PONG")
+func ping(s *Server, c net.Conn, args []string) (int, error) {
+	return c.Write([]byte(resp.EncodeSimpleString(PONG)))
 }
 
-func echo(s *Server, args []string) string {
-	return resp.EncodeBulkString(args[0])
+func echo(s *Server, c net.Conn, args []string) (int, error) {
+	return c.Write([]byte(resp.EncodeBulkString(args[0])))
 }
 
-func get(s *Server, args []string) string {
+func get(s *Server, c net.Conn, args []string) (int, error) {
 	if len(args) < 1 {
-		return resp.EncodeError(fmt.Sprintf("ERR wrong number of arguments for GET: %v", len(args)))
+		return c.Write([]byte(resp.EncodeError(fmt.Sprintf("ERR wrong number of arguments for GET: %v", len(args)))))
 	}
 
 	v, err := s.db.Get(args[0])
 	if err != nil {
 		switch e := err.(type) {
 		case *internal.KeyNotFoundError:
-			return resp.EncodeBulkString("")
+			return c.Write([]byte(resp.EncodeBulkString("")))
 		case *internal.KeyExpiredError:
-			return resp.NULL_BULK_STRING
+			return c.Write([]byte(resp.NULL_BULK_STRING))
 		default:
-			return resp.EncodeError(e.Error())
+			return c.Write([]byte(resp.EncodeError(e.Error())))
 		}
 	}
 
-	return resp.EncodeBulkString(v.Value)
+	return c.Write([]byte(resp.EncodeBulkString(v.Value)))
 }
 
-func set(s *Server, args []string) string {
+func set(s *Server, c net.Conn, args []string) (int, error) {
 	if len(args) != 2 && len(args) != 4 {
-		return resp.EncodeError(fmt.Sprintf("ERR wrong number of arguments for SET: %v", len(args)))
+		return c.Write([]byte(resp.EncodeError(fmt.Sprintf("ERR wrong number of arguments for SET: %v", len(args)))))
 	}
 
 	key := args[0]
@@ -81,18 +84,18 @@ func set(s *Server, args []string) string {
 		expiryType := args[2]
 		expiryNum, err := strconv.ParseInt(args[3], 10, 64)
 		if err != nil {
-			return resp.EncodeError(err.Error())
+			return c.Write([]byte(resp.EncodeError(err.Error())))
 		}
 
 		expiryNum, err = resolveExpiry(expiryType, expiryNum)
 		if err != nil {
-			return resp.EncodeError(err.Error())
+			return c.Write([]byte(resp.EncodeError(err.Error())))
 		}
 		expiryMilis = expiryNum
 	}
 
 	s.db.Set(key, val, expiryMilis)
-	return resp.EncodeSimpleString(OK)
+	return c.Write([]byte(resp.EncodeSimpleString(OK)))
 }
 
 func resolveExpiry(expiryType string, expiryNum int64) (int64, error) {
@@ -106,30 +109,30 @@ func resolveExpiry(expiryType string, expiryNum int64) (int64, error) {
 	}
 }
 
-func config(s *Server, args []string) string {
+func config(s *Server, c net.Conn, args []string) (int, error) {
 	if len(args) == 0 {
-		return resp.EncodeError("ERR wrong number of arguments for CONFIG commands")
+		return c.Write([]byte(resp.EncodeError("ERR wrong number of arguments for CONFIG commands")))
 	}
 
 	if args[0] == "get" {
 		if len(args) != 2 {
-			return resp.EncodeError("ERR wrong number of arguments for CONFIG GET")
+			return c.Write([]byte(resp.EncodeError("ERR wrong number of arguments for CONFIG GET")))
 		}
 
 		switch args[1] {
 		case "dir":
-			return resp.EncodeArrayBulkStrings([]string{"dir", s.db.Options.Dir})
+			return c.Write([]byte(resp.EncodeArrayBulkStrings([]string{"dir", s.db.Options.Dir})))
 		case "s.dbfilename":
-			return resp.EncodeArrayBulkStrings([]string{"s.dbfilename", s.db.Options.DbFilename})
+			return c.Write([]byte(resp.EncodeArrayBulkStrings([]string{"s.dbfilename", s.db.Options.DbFilename})))
 		default:
-			return resp.EncodeError("ERR unknown CONFIG parameter")
+			return c.Write([]byte(resp.EncodeError("ERR unknown CONFIG parameter")))
 		}
 	}
 
-	return resp.EncodeError("ERR unknown CONFIG subcommand")
+	return c.Write([]byte(resp.EncodeError("ERR unknown CONFIG subcommand")))
 }
 
-func info(s *Server, args []string) string {
+func info(s *Server, c net.Conn, args []string) (int, error) {
 	var infos []string = make([]string, 0, 4)
 
 	var role string
@@ -154,45 +157,57 @@ func info(s *Server, args []string) string {
 		)
 	}
 
-	return resp.EncodeBulkString(strings.Join(infos, "\n"))
+	return c.Write([]byte(resp.EncodeBulkString(strings.Join(infos, "\n"))))
 }
 
-func replConf(_ *Server, args []string) string {
+func replConf(_ *Server, c net.Conn, args []string) (int, error) {
 	if len(args) == 0 {
-		return resp.EncodeError("ERR wrong number of arguments for REPLCONFIG subcommand")
+		return c.Write([]byte(resp.EncodeError("ERR wrong number of arguments for REPLCONFIG subcommand")))
 	}
 
 	switch args[0] {
 	case "listening-port":
 		if len(args) != 2 {
-			return resp.EncodeError("ERR wrong number of arguments for REPLCONFIG listening-port subcommand")
+			return c.Write([]byte(resp.EncodeError("ERR wrong number of arguments for REPLCONFIG listening-port subcommand")))
 		}
 		portStr := args[1]
 		log.Println("Replica is listening on port:", portStr)
 	case "capa":
 		if len(args) < 2 {
-			return resp.EncodeError("ERR wrong number of arguments for REPLCONFIG capa subcommand")
+			return c.Write([]byte(resp.EncodeError("ERR wrong number of arguments for REPLCONFIG capa subcommand")))
 		}
 		capaStr := args[1]
 		log.Println("Replica supports:", capaStr)
 	default:
-		return resp.EncodeError("ERR unknown REPLCONFIG subcommand")
+		return c.Write([]byte(resp.EncodeError("ERR unknown REPLCONFIG subcommand")))
 	}
 
-	return resp.EncodeSimpleString(OK)
+	return c.Write([]byte(resp.EncodeSimpleString(OK)))
 }
 
-func psync(s *Server, args []string) string {
+func psync(s *Server, c net.Conn, args []string) (int, error) {
 	if !s.isMaster {
-		return resp.EncodeError("Not eligible to serve PSYNC")
+		return c.Write([]byte(resp.EncodeError("Not eligible to serve PSYNC")))
 	}
 	if len(args) != 2 {
-		return resp.EncodeError("ERR wrong number of arguments for PSYNC")
+		return c.Write([]byte(resp.EncodeError("ERR wrong number of arguments for PSYNC")))
 	}
 
-	return resp.EncodeSimpleString(fmt.Sprintf("%s %s 0", FULLRESYNC, s.master.repl_id))
+	n, err := c.Write([]byte(resp.EncodeSimpleString(fmt.Sprintf("%s %s 0", FULLRESYNC, s.master.repl_id))))
+	if err != nil {
+		return n, err
+	}
+
+	// Send empty file
+	buf, err := hex.DecodeString(EMPTY_FILE)
+	if err != nil {
+		return n, err
+	}
+	fileN, err := c.Write([]byte(resp.EncodeFile(buf)))
+
+	return n + fileN, err
 }
 
-func unknown(s *Server, args []string) string {
-	return resp.EncodeError("ERR unknown command")
+func unknown(s *Server, c net.Conn, args []string) (int, error) {
+	return c.Write([]byte(resp.EncodeError("ERR unknown command")))
 }

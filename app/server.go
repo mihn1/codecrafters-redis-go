@@ -120,8 +120,11 @@ func (server *Server) handleConnection(conn net.Conn) {
 			continue
 		}
 
-		res := HandleCommand(server, command)
-		conn.Write([]byte(res))
+		_, err = HandleCommand(server, conn, command)
+		if err != nil {
+			log.Fatalf("Error handling command: %v - message: %v", err, message)
+			continue
+		}
 	}
 }
 
