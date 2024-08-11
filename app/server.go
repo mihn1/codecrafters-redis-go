@@ -13,10 +13,20 @@ import (
 )
 
 type Server struct {
-	db         *internal.DB
-	port       int
-	isMaster   bool
-	masterAddr string
+	db       *internal.DB
+	port     int
+	isMaster bool
+	master   MasterInfo
+	slave    SlaveInfo
+}
+
+type MasterInfo struct {
+	replid      string
+	repl_offset int64
+}
+
+type SlaveInfo struct {
+	replicaof string
 }
 
 func (s *Server) run() {
@@ -70,6 +80,21 @@ func (server *Server) handleConnection(conn net.Conn) {
 	}
 }
 
+func generateReplId() string {
+	return "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb"
+	// generate 30 random bytes -> base64 -> 40-character random string
+	// buf := make([]byte, 30)
+	// _, err := rand.Read(buf)
+	// if err != nil {
+	// 	fmt.Println("Error generating repl id", err)
+	// 	os.Exit(1)
+	// }
+
+	// base64Encode := base64.StdEncoding.EncodeToString(buf)
+	// id := fmt.Sprintf("%x", base64Encode)
+	// return id
+}
+
 func main() {
 	portStr := flag.String("port", "6379", "Port to listen on")
 	dir := flag.String("dir", "/tmp/redis-files", "Directory to store RDB files")
@@ -85,13 +110,16 @@ func main() {
 	}
 
 	server := &Server{
-		port:     port,
-		isMaster: true,
+		port: port,
 	}
 
-	if *replicaof != "" {
+	if *replicaof == "" {
+		server.isMaster = true
+		server.master.replid = generateReplId()
+		server.master.repl_offset = 0
+	} else {
 		server.isMaster = false
-		server.masterAddr = *replicaof
+		server.slave.replicaof = *replicaof
 	}
 
 	server.db = internal.NewDB(internal.DBOptions{Dir: *dir, DbFilename: *dbFileName})

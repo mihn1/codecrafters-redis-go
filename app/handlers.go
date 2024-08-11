@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/codecrafters-io/redis-starter-go/internal"
 	"github.com/codecrafters-io/redis-starter-go/resp"
@@ -113,6 +114,8 @@ func config(s *Server, args []string) string {
 }
 
 func info(s *Server, args []string) string {
+	var infos []string = make([]string, 0, 4)
+
 	var role string
 	if s.isMaster {
 		role = "master"
@@ -120,11 +123,22 @@ func info(s *Server, args []string) string {
 		role = "slave"
 	}
 
+	infos = append(infos,
+		"role:"+role,
+	)
+
 	if len(args) == 0 {
 		// TODO: add more info
 	}
 
-	return resp.EncodeBulkString("role:" + role)
+	if s.isMaster {
+		infos = append(infos,
+			"master_replid:"+s.master.replid,
+			"master_repl_offset:"+strconv.FormatInt(s.master.repl_offset, 10),
+		)
+	}
+
+	return resp.EncodeBulkString(strings.Join(infos, "\n"))
 }
 
 func unknown(s *Server, args []string) string {
