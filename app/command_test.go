@@ -10,7 +10,7 @@ func TestParseEchoCommand(t *testing.T) {
 	// *2\r\n$4\r\nECHO\r\n$3\r\nhey\r\n -> ["ECHO", "hey"]
 
 	raw := "*2\r\n$4\r\nECHO\r\n$3\r\nhey\r\n"
-	command, err := ParseCommand(raw)
+	command, err := ParseCommand([]byte(raw))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -23,7 +23,7 @@ func TestParseREPLCONF_CAPACommand(t *testing.T) {
 	// *3\r\n$8\r\nREPLCONF\r\n$4\r\ncapa\r\n$6\r\npsync2\r\n -> ["REPLCONF", "capa", "psync2"]
 
 	raw := "*3\r\n$8\r\nREPLCONF\r\n$4\r\ncapa\r\n$6\r\npsync2\r\n"
-	command, err := ParseCommand(raw)
+	command, err := ParseCommand([]byte(raw))
 	if err != nil {
 		t.Fatal(err)
 	}

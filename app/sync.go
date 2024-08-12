@@ -16,7 +16,7 @@ func syncWithMaster(s *Server) error {
 }
 
 func handshake(s *Server) error {
-	masterAddr := fmt.Sprintf("%s:%d", s.slave.masterHost, s.slave.masterPort)
+	masterAddr := fmt.Sprintf("%s:%d", s.asSlave.masterHost, s.asSlave.masterPort)
 	log.Println("Syncing...", masterAddr)
 	conn, err := net.Dial("tcp", masterAddr)
 	if err != nil {
@@ -49,7 +49,7 @@ func handshake(s *Server) error {
 }
 
 func sendPing(s *Server, conn net.Conn) error {
-	err := sendMaster(conn, resp.EncodeArrayBulkStrings([]string{"PING"}))
+	err := sendMessage(conn, resp.EncodeArrayBulkStrings([]string{"PING"}))
 	if err != nil {
 		return err
 	}
@@ -69,7 +69,7 @@ func sendPing(s *Server, conn net.Conn) error {
 
 func sendReplConfig(s *Server, conn net.Conn) error {
 	message := resp.EncodeArrayBulkStrings([]string{"REPLCONF", "listening-port", strconv.Itoa(s.port)})
-	err := sendMaster(conn, message)
+	err := sendMessage(conn, message)
 	if err != nil {
 		return err
 	}
@@ -85,7 +85,7 @@ func sendReplConfig(s *Server, conn net.Conn) error {
 	}
 
 	message = resp.EncodeArrayBulkStrings([]string{"REPLCONF", "capa", "psync2"})
-	err = sendMaster(conn, message)
+	err = sendMessage(conn, message)
 	if err != nil {
 		return err
 	}
@@ -103,7 +103,7 @@ func sendReplConfig(s *Server, conn net.Conn) error {
 }
 
 func sendPSYNC(s *Server, conn net.Conn) error {
-	err := sendMaster(conn, resp.EncodeArrayBulkStrings([]string{"PSYNC", "?", "-1"}))
+	err := sendMessage(conn, resp.EncodeArrayBulkStrings([]string{"PSYNC", "?", "-1"}))
 	if err != nil {
 		return err
 	}
@@ -113,8 +113,12 @@ func sendPSYNC(s *Server, conn net.Conn) error {
 	return nil
 }
 
-func sendMaster(conn net.Conn, message string) error {
-	_, err := conn.Write([]byte(message))
+func sendMessage(conn net.Conn, message string) error {
+	return sendBytes(conn, []byte(message))
+}
+
+func sendBytes(conn net.Conn, bytes []byte) error {
+	_, err := conn.Write(bytes)
 	return err
 }
 

@@ -28,10 +28,14 @@ const (
 type Command struct {
 	CommandType CommandType
 	Agrs        []string
+	Buffer      []byte
 }
 
-func ParseCommand(raw string) (Command, error) {
-	var command Command
+func ParseCommand(buffer []byte) (*Command, error) {
+	command := &Command{
+		Buffer: buffer,
+	}
+	raw := string(buffer)
 
 	tokens, err := resp.ParseArray(strings.TrimSpace(strings.ToLower(raw)))
 	if err != nil {

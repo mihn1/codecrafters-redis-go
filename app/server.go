@@ -8,6 +8,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"github.com/codecrafters-io/redis-starter-go/internal"
 )
@@ -23,16 +25,24 @@ type Server struct {
 	db       *internal.DB
 	port     int
 	isMaster bool
-	master   MasterInfo
-	slave    SlaveInfo
+	asMaster AsMasterInfo
+	asSlave  AsSlaveInfo
+	mu       *sync.Mutex
 }
 
-type MasterInfo struct {
+type AsMasterInfo struct {
 	repl_id     string
 	repl_offset int64
+	slaves      map[ConnectionID]*Slave
 }
 
-type SlaveInfo struct {
+type Slave struct {
+	connection    Connection
+	listeningPort int
+	capa          []string
+}
+
+type AsSlaveInfo struct {
 	masterHost string
 	masterPort int
 }
@@ -40,12 +50,14 @@ type SlaveInfo struct {
 func NewServer(options ServerOptions) *Server {
 	server := &Server{
 		port: options.Port,
+		mu:   &sync.Mutex{},
 	}
 
 	if options.Replicaof == "" {
 		server.isMaster = true
-		server.master.repl_id = generateReplId()
-		server.master.repl_offset = 0
+		server.asMaster.repl_id = generateReplId()
+		server.asMaster.repl_offset = 0
+		server.asMaster.slaves = make(map[ConnectionID]*Slave)
 	} else {
 		server.isMaster = false
 		splitted := strings.Split(options.Replicaof, " ")
@@ -53,13 +65,13 @@ func NewServer(options ServerOptions) *Server {
 			log.Println("Invalid replicaof format")
 			os.Exit(1)
 		}
-		server.slave.masterHost = splitted[0]
+		server.asSlave.masterHost = splitted[0]
 		port, err := strconv.Atoi(splitted[1])
 		if err != nil {
 			log.Println("Invalid master port:", err)
 			os.Exit(1)
 		}
-		server.slave.masterPort = port
+		server.asSlave.masterPort = port
 	}
 
 	server.db = internal.NewDB(internal.DBOptions{Dir: options.Dir, DbFilename: options.DbFilename})
@@ -85,6 +97,7 @@ func (s *Server) Run() {
 	defer l.Close()
 	log.Println("Listening on:", addr)
 
+	var connID int64
 	for {
 		conn, err := l.Accept()
 		if err != nil {
@@ -92,18 +105,21 @@ func (s *Server) Run() {
 			os.Exit(1)
 		}
 
-		go s.handleConnection(conn)
+		atomic.AddInt64(&connID, 1)
+		connection := NewConnection(ConnectionID(connID), conn)
+		go s.handleConnection(connection)
 	}
 }
 
-func (server *Server) handleConnection(conn net.Conn) {
-	defer conn.Close()
+func (server *Server) handleConnection(c *Connection) {
+	defer c.conn.Close()
+	// TODO: clean closed slave connection
 
-	log.Println("Received connection from:", conn.RemoteAddr())
+	log.Println("Received connection from:", c.conn.RemoteAddr())
 	buf := make([]byte, 1024)
 
 	for {
-		n, err := conn.Read(buf)
+		n, err := c.conn.Read(buf)
 		if err != nil {
 			if err == io.EOF {
 				break
@@ -111,18 +127,17 @@ func (server *Server) handleConnection(conn net.Conn) {
 			log.Println("Error reading", err)
 		}
 
-		message := string(buf[:n])
-		log.Printf("SERVER: Client %v sent message: %v\n", conn.RemoteAddr(), message)
-
-		command, err := ParseCommand(message)
+		command, err := ParseCommand(buf[:n])
 		if err != nil {
-			log.Fatalf("Error parsing command: %v - message: %v", err, message)
+			log.Fatalf("Error parsing command from client: %v", err)
 			continue
 		}
 
-		_, err = HandleCommand(server, conn, command)
+		log.Printf("SERVER: Client %v sent command: %v - %v\n", c.conn.RemoteAddr(), command.CommandType, command.Agrs)
+
+		_, err = HandleCommand(server, c, command)
 		if err != nil {
-			log.Fatalf("Error handling command: %v - message: %v", err, message)
+			log.Fatalf("Error handling command: %v", err)
 			continue
 		}
 	}
