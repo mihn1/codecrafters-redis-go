@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/codecrafters-io/redis-starter-go/internal"
 	"github.com/codecrafters-io/redis-starter-go/resp"
@@ -105,7 +106,7 @@ func (s *Server) Run() {
 	if !s.isMaster {
 		// Serving master connection after this slave is up and listening
 		go s.handleConnection(s.asSlave.masterConnection)
-		// time.Sleep(1 * time.Second) // waiting for getting propagated keys from master
+		time.Sleep(1 * time.Second) // waiting for getting propagated keys from master
 	}
 
 	for {
