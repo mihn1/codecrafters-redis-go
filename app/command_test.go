@@ -1,8 +1,12 @@
 package main
 
 import (
+	"bufio"
+	"fmt"
+	"strings"
 	"testing"
 
+	"github.com/codecrafters-io/redis-starter-go/resp"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -30,4 +34,45 @@ func TestParseREPLCONF_CAPACommand(t *testing.T) {
 
 	assert.EqualValues(t, ReplConf, command.CommandType)
 	assert.Equal(t, []string{"hey"}, command.Agrs)
+}
+
+func TestParseEchoCommandFromRESP(t *testing.T) {
+	raw := "*2\r\n$4\r\nECHO\r\n$3\r\nhey\r\n"
+	reader := bufio.NewReader(strings.NewReader(raw))
+	r, err := resp.ReadNextResp(reader)
+	if err != nil {
+		fmt.Println("Error reading next RESP", err)
+		t.Fatal(err)
+	}
+
+	command, err := ParseCommandFromRESP(r)
+	if err != nil {
+		fmt.Println("Error parsing command from RESP", err)
+		t.Fatal(err)
+	}
+
+	fmt.Println("Command: ", *command)
+	fmt.Println("raw string", string(command.Buffer))
+	assert.EqualValues(t, Echo, command.CommandType)
+}
+
+func TestParseSetCommandFromRESP(t *testing.T) {
+	// raw := "*3\r\n$3\r\nSET\r\n$3\r\nfoo\r\n$3\r\n123\r\n"
+	raw := "*2\r\n$3\r\nGET\r\n$3\r\nfoo\r\n"
+	reader := bufio.NewReader(strings.NewReader(raw))
+	r, err := resp.ReadNextResp(reader)
+	if err != nil {
+		fmt.Println("Error reading next RESP", err)
+		t.Fatal(err)
+	}
+
+	command, err := ParseCommandFromRESP(r)
+	if err != nil {
+		fmt.Println("Error parsing command from RESP", err)
+		t.Fatal(err)
+	}
+
+	fmt.Println("Command: ", *command)
+	fmt.Println("raw string", string(command.Buffer))
+	assert.EqualValues(t, Set, command.CommandType)
 }

@@ -31,10 +31,11 @@ var commandHandlers = map[CommandType]func(*Server, *Connection, []string) (int,
 
 func HandleCommand(s *Server, connection *Connection, command *Command) (int, error) {
 	handler := resolveHandler(command.CommandType)
-	if command.CommandType == Set {
-		replicateCommand(s, command)
+	n, err := handler(s, connection, command.Agrs)
+	if err == nil {
+		maybeReplicateCommand(s, command)
 	}
-	return handler(s, connection, command.Agrs)
+	return n, err
 }
 
 func resolveHandler(command CommandType) func(*Server, *Connection, []string) (int, error) {
@@ -44,8 +45,9 @@ func resolveHandler(command CommandType) func(*Server, *Connection, []string) (i
 	return unknown
 }
 
-func replicateCommand(s *Server, command *Command) {
-	if s.isMaster && len(s.asMaster.slaves) > 0 {
+func maybeReplicateCommand(s *Server, command *Command) {
+	if command.CommandType == Set && s.isMaster && len(s.asMaster.slaves) > 0 {
+		log.Println("Replicating command to", len(s.asMaster.slaves), "slaves:", string(command.Buffer))
 		for _, slave := range s.asMaster.slaves {
 			go replicate(slave, command.Buffer)
 		}
@@ -90,6 +92,19 @@ func set(s *Server, c *Connection, args []string) (int, error) {
 		return c.conn.Write([]byte(resp.EncodeError(fmt.Sprintf("ERR wrong number of arguments for SET: %v", len(args)))))
 	}
 
+	err := setInternal(s, args)
+	if !s.isMaster && c.id == s.asSlave.masterConnection.id {
+		// No need to respond to the master
+		return 0, err
+	}
+
+	if err != nil {
+		return c.conn.Write([]byte(resp.EncodeError(err.Error())))
+	}
+	return c.conn.Write([]byte(resp.EncodeSimpleString(OK)))
+}
+
+func setInternal(s *Server, args []string) error {
 	key := args[0]
 	val := args[1]
 	var expiryMilis int64 = s.db.Options.ExpiryTime
@@ -99,18 +114,18 @@ func set(s *Server, c *Connection, args []string) (int, error) {
 		expiryType := args[2]
 		expiryNum, err := strconv.ParseInt(args[3], 10, 64)
 		if err != nil {
-			return c.conn.Write([]byte(resp.EncodeError(err.Error())))
+			return err
 		}
 
 		expiryNum, err = resolveExpiry(expiryType, expiryNum)
 		if err != nil {
-			return c.conn.Write([]byte(resp.EncodeError(err.Error())))
+			return err
 		}
 		expiryMilis = expiryNum
 	}
 
 	s.db.Set(key, val, expiryMilis)
-	return c.conn.Write([]byte(resp.EncodeSimpleString(OK)))
+	return nil
 }
 
 func resolveExpiry(expiryType string, expiryNum int64) (int64, error) {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"log"
@@ -10,45 +11,48 @@ import (
 	"github.com/codecrafters-io/redis-starter-go/resp"
 )
 
-func syncWithMaster(s *Server) error {
-	err := handshake(s)
-	return err
+func syncWithMaster(s *Server) (*Connection, error) {
+	connection, err := handshake(s)
+	return connection, err
 }
 
-func handshake(s *Server) error {
+func handshake(s *Server) (*Connection, error) {
 	masterAddr := fmt.Sprintf("%s:%d", s.asSlave.masterHost, s.asSlave.masterPort)
 	log.Println("Syncing...", masterAddr)
 	conn, err := net.Dial("tcp", masterAddr)
 	if err != nil {
 		log.Fatalf("Error connecting to master: %v", err)
-		return err
+		return nil, err
 	}
-	defer conn.Close()
+	connection := &Connection{
+		id:   getConnID(),
+		conn: conn,
+	}
 
 	log.Println("Sending PING to master")
-	err = sendPing(s, conn)
+	err = sendPing(conn)
 	if err != nil {
 		log.Fatalf("Error sending PING: %v", err)
-		return err
+		return connection, err
 	}
 
 	log.Println("Sending replication config to master")
 	err = sendReplConfig(s, conn)
 	if err != nil {
 		log.Fatalf("Error sending replication config: %v", err)
-		return err
+		return connection, err
 	}
 
 	err = sendPSYNC(s, conn)
 	if err != nil {
 		log.Fatalf("Error sending PSYNC: %v", err)
-		return err
+		return connection, err
 	}
 
-	return err
+	return connection, nil
 }
 
-func sendPing(s *Server, conn net.Conn) error {
+func sendPing(conn net.Conn) error {
 	err := sendMessage(conn, resp.EncodeArrayBulkStrings([]string{"PING"}))
 	if err != nil {
 		return err
@@ -102,14 +106,37 @@ func sendReplConfig(s *Server, conn net.Conn) error {
 	return nil
 }
 
-func sendPSYNC(s *Server, conn net.Conn) error {
+func sendPSYNC(_ *Server, conn net.Conn) error {
 	err := sendMessage(conn, resp.EncodeArrayBulkStrings([]string{"PSYNC", "?", "-1"}))
 	if err != nil {
 		return err
 	}
 
-	// TODO: validate response
-	// err = decodeCheckSimpleString(conn, "FULLRESYNC <REPL_ID> 0")
+	reader := bufio.NewReader(conn)
+
+	res, err := resp.ReadNextResp(reader)
+	if err != nil && err != io.EOF {
+		log.Fatalln("Error reading PSYNC response", err)
+		return err
+	}
+
+	log.Println("PSYNC response:", string(res.Data[0]))
+
+	b, err := resp.ReadLine(reader)
+	if err != nil && err != io.EOF {
+		return err
+	}
+	size, err := strconv.Atoi(string(b[1 : len(b)-2]))
+	if err != nil {
+		return err
+	}
+	buf := make([]byte, size)
+	_, err = reader.Read(buf)
+	if err != nil && err != io.EOF {
+		return err
+	}
+
+	log.Println("PSYNC file response:", string(buf))
 	return nil
 }
 

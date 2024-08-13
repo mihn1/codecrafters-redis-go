@@ -31,6 +31,29 @@ type Command struct {
 	Buffer      []byte
 }
 
+func ParseCommandFromRESP(r resp.RESP) (*Command, error) {
+	if r.Type != resp.ARRAY {
+		return nil, fmt.Errorf("expect array RESP, getting %v", r.Type)
+	}
+
+	if len(r.Data) == 0 {
+		return nil, fmt.Errorf("invalid command")
+	}
+
+	command := &Command{
+		Buffer: r.Raw,
+		Agrs:   make([]string, 0, len(r.Data)-1),
+	}
+
+	command.CommandType = CommandType(toLowerString(r.Data[0]))
+
+	for _, b := range r.Data[1:] {
+		command.Agrs = append(command.Agrs, toLowerString(b))
+	}
+
+	return command, nil
+}
+
 func ParseCommand(buffer []byte) (*Command, error) {
 	command := &Command{
 		Buffer: buffer,

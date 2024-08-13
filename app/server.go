@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"log"
@@ -12,6 +13,7 @@ import (
 	"sync/atomic"
 
 	"github.com/codecrafters-io/redis-starter-go/internal"
+	"github.com/codecrafters-io/redis-starter-go/resp"
 )
 
 type ServerOptions struct {
@@ -43,8 +45,9 @@ type Slave struct {
 }
 
 type AsSlaveInfo struct {
-	masterHost string
-	masterPort int
+	masterHost       string
+	masterPort       int
+	masterConnection *Connection
 }
 
 func NewServer(options ServerOptions) *Server {
@@ -81,11 +84,13 @@ func NewServer(options ServerOptions) *Server {
 func (s *Server) Run() {
 	if !s.isMaster {
 		// sync with master
-		err := syncWithMaster(s)
+		connection, err := syncWithMaster(s)
 		if err != nil {
 			log.Println("Error syncing with master:", err)
 			os.Exit(1)
 		}
+		log.Println("Done syncing with master:", s.asSlave.masterHost, s.asSlave.masterPort)
+		s.asSlave.masterConnection = connection
 	}
 
 	addr := fmt.Sprintf("0.0.0.0:%d", s.port)
@@ -97,7 +102,12 @@ func (s *Server) Run() {
 	defer l.Close()
 	log.Println("Listening on:", addr)
 
-	var connID int64
+	if !s.isMaster {
+		// Serving master connection after this slave is up and listening
+		go s.handleConnection(s.asSlave.masterConnection)
+		// time.Sleep(1 * time.Second) // waiting for getting propagated keys from master
+	}
+
 	for {
 		conn, err := l.Accept()
 		if err != nil {
@@ -105,8 +115,7 @@ func (s *Server) Run() {
 			os.Exit(1)
 		}
 
-		atomic.AddInt64(&connID, 1)
-		connection := NewConnection(ConnectionID(connID), conn)
+		connection := NewConnection(getConnID(), conn)
 		go s.handleConnection(connection)
 	}
 }
@@ -116,20 +125,22 @@ func (server *Server) handleConnection(c *Connection) {
 	// TODO: clean closed slave connection
 
 	log.Println("Received connection from:", c.conn.RemoteAddr())
-	buf := make([]byte, 1024)
+	reader := bufio.NewReader(c.conn)
 
 	for {
-		n, err := c.conn.Read(buf)
+		rp, err := resp.ReadNextResp(reader)
 		if err != nil {
 			if err == io.EOF {
+				log.Println("Client closed connection")
 				break
 			}
-			log.Println("Error reading", err)
+			log.Fatalln("Error reading RESP", err)
+			continue
 		}
 
-		command, err := ParseCommand(buf[:n])
+		command, err := ParseCommandFromRESP(rp)
 		if err != nil {
-			log.Fatalf("Error parsing command from client: %v", err)
+			log.Fatalf("Error parsing command from client: %v - Command\n: %v", err, command)
 			continue
 		}
 
@@ -137,7 +148,7 @@ func (server *Server) handleConnection(c *Connection) {
 
 		_, err = HandleCommand(server, c, command)
 		if err != nil {
-			log.Fatalf("Error handling command: %v", err)
+			log.Fatalf("Error handling command %v: %v", command, err)
 			continue
 		}
 	}
@@ -145,14 +156,10 @@ func (server *Server) handleConnection(c *Connection) {
 
 func generateReplId() string {
 	return "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb"
-	// generate 30 random bytes -> base64 -> 40-character random string
-	// buf := make([]byte, 30)
-	// _, err := rand.Read(buf)
-	// if err != nil {
-	// 	log.Println("Error generating repl id", err)
-	// 	os.Exit(1)
-	// }
-	// base64Encode := base64.StdEncoding.EncodeToString(buf)
-	// id := fmt.Sprintf("%x", base64Encode)
-	// return id
+}
+
+var connID int64
+
+func getConnID() ConnectionID {
+	return ConnectionID(atomic.AddInt64(&connID, 1))
 }
