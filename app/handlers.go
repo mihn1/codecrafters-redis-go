@@ -47,9 +47,9 @@ func resolveHandler(command CommandType) func(*Server, *Connection, []string) (i
 
 func maybeReplicateCommand(s *Server, command *Command) {
 	if command.CommandType == Set && s.isMaster && len(s.asMaster.slaves) > 0 {
-		log.Println("Replicating command to", len(s.asMaster.slaves), "slaves:", string(command.Buffer))
+		log.Println("Replicating command to", len(s.asMaster.slaves), "slaves:", string(command.Raw))
 		for _, slave := range s.asMaster.slaves {
-			go replicate(slave, command.Buffer)
+			go replicate(slave, command.Raw)
 		}
 	}
 }
@@ -176,8 +176,9 @@ func info(s *Server, c *Connection, args []string) (int, error) {
 		"role:"+role,
 	)
 
-	if len(args) == 0 {
+	if len(args) > 0 {
 		// TODO: add more info
+		log.Println("TODO: add more info for args:", args)
 	}
 
 	if s.isMaster {

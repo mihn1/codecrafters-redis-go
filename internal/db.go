@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"sync"
 	"time"
 )
 
@@ -12,7 +13,8 @@ type Value struct {
 
 type DB struct {
 	Options *DBOptions
-	Mapping map[string]Value
+	mapping map[string]Value
+	mu      *sync.Mutex
 }
 
 func NewDB(options DBOptions) *DB {
@@ -22,14 +24,15 @@ func NewDB(options DBOptions) *DB {
 
 	return &DB{
 		Options: &options,
-		Mapping: make(map[string]Value),
+		mapping: make(map[string]Value),
+		mu:      &sync.Mutex{},
 	}
 }
 
 func (db *DB) Get(key string) (Value, error) {
-	if v, ok := db.Mapping[key]; ok {
+	if v, ok := db.mapping[key]; ok {
 		if v.ExpiredTime < time.Now().UnixMilli() {
-			delete(db.Mapping, key)
+			go db.tryDelete(key)
 			return Value{}, &KeyExpiredError{}
 		}
 		return v, nil
@@ -43,5 +46,19 @@ func (db *DB) Set(key string, val string, expireAfterMillis int64) {
 		CreatedAt:   time.Now().UnixMilli(),
 		ExpiredTime: time.Now().Add(time.Duration(expireAfterMillis) * time.Millisecond).UnixMilli(),
 	}
-	db.Mapping[key] = value
+
+	db.mu.Lock()
+	db.mapping[key] = value
+	db.mu.Unlock()
+}
+
+func (db *DB) tryDelete(key string) {
+	db.mu.Lock()
+	// Check again
+	if v, ok := db.mapping[key]; ok {
+		if v.ExpiredTime < time.Now().UnixMilli() {
+			delete(db.mapping, key)
+		}
+	}
+	db.mu.Unlock()
 }
