@@ -29,11 +29,18 @@ var commandHandlers = map[CommandType]func(*Server, *Connection, []string) (int,
 	Psync:    psync,
 }
 
-func HandleCommand(s *Server, connection *Connection, command *Command) (int, error) {
+func HandleCommand(s *Server, c *Connection, command *Command) (int, error) {
 	handler := resolveHandler(command.CommandType)
-	n, err := handler(s, connection, command.Agrs)
+	n, err := handler(s, c, command.Agrs)
 	if err == nil {
 		maybeReplicateCommand(s, command)
+
+		if isFromMaster(s, c) {
+			log.Printf("Received %v bytes from master:", len(command.Raw))
+			// s.mu.Lock() // Don't need to lock cause a connection is handled sequentially
+			s.asSlave.offset += int64(len(command.Raw))
+			// s.mu.Unlock()
+		}
 	}
 	return n, err
 }
@@ -59,7 +66,14 @@ func replicate(slave *Slave, commandBuf []byte) (int, error) {
 	return slave.connection.conn.Write(commandBuf)
 }
 
+func isFromMaster(s *Server, c *Connection) bool {
+	return !s.isMaster && s.asSlave.masterConnection.id == c.id
+}
+
 func ping(s *Server, c *Connection, args []string) (int, error) {
+	if isFromMaster(s, c) {
+		return 0, nil // Master connection -> do nothing
+	}
 	return c.conn.Write(resp.EncodeSimpleString(PONG))
 }
 
@@ -93,7 +107,7 @@ func set(s *Server, c *Connection, args []string) (int, error) {
 	}
 
 	err := setInternal(s, args)
-	if !s.isMaster && c.id == s.asSlave.masterConnection.id {
+	if isFromMaster(s, c) {
 		// No need to respond to the master
 		return 0, err
 	}
@@ -243,7 +257,7 @@ func replConf(s *Server, c *Connection, args []string) (int, error) {
 			return c.conn.Write(resp.EncodeError("ERR wrong number of arguments for REPLCONFIG getack subcommand"))
 		}
 		// ignore the rest of the args for now
-		resArr := []string{"REPLCONF", "ACK", strconv.FormatInt(s.asMaster.repl_offset, 10)}
+		resArr := []string{"REPLCONF", "ACK", strconv.FormatInt(s.asSlave.offset, 10)}
 		return c.conn.Write(resp.EncodeArrayBulkStrings(resArr))
 	default:
 		return c.conn.Write(resp.EncodeError("ERR unknown REPLCONFIG subcommand"))

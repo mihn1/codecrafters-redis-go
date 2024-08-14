@@ -49,7 +49,7 @@ type AsSlaveInfo struct {
 	masterHost       string
 	masterPort       int
 	masterConnection *Connection
-	ackOffset        int64
+	offset        int64
 }
 
 func NewServer(options ServerOptions) *Server {
