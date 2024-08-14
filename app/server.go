@@ -11,7 +11,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/codecrafters-io/redis-starter-go/internal"
 	"github.com/codecrafters-io/redis-starter-go/resp"
@@ -49,6 +48,7 @@ type AsSlaveInfo struct {
 	masterHost       string
 	masterPort       int
 	masterConnection *Connection
+	ackOffset        int64
 }
 
 func NewServer(options ServerOptions) *Server {
@@ -84,7 +84,8 @@ func NewServer(options ServerOptions) *Server {
 
 func (s *Server) Run() {
 	if !s.isMaster {
-		// sync with master
+		// sync with master after the server is up the running
+		log.Println("Syncing with master:", s.asSlave.masterHost, s.asSlave.masterPort)
 		connection, err := syncWithMaster(s)
 		if err != nil {
 			log.Println("Error syncing with master:", err)
@@ -92,6 +93,9 @@ func (s *Server) Run() {
 		}
 		log.Println("Done syncing with master:", s.asSlave.masterHost, s.asSlave.masterPort)
 		s.asSlave.masterConnection = connection
+		// Serving master connection after this slave is up and listening
+		go s.handleConnection(s.asSlave.masterConnection)
+		// time.Sleep(1 * time.Second) // waiting for getting propagated keys from master
 	}
 
 	addr := fmt.Sprintf("0.0.0.0:%d", s.port)
@@ -102,12 +106,6 @@ func (s *Server) Run() {
 	}
 	defer l.Close()
 	log.Println("Listening on:", addr)
-
-	if !s.isMaster {
-		// Serving master connection after this slave is up and listening
-		go s.handleConnection(s.asSlave.masterConnection)
-		time.Sleep(1 * time.Second) // waiting for getting propagated keys from master
-	}
 
 	for {
 		conn, err := l.Accept()

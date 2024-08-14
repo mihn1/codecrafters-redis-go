@@ -53,7 +53,7 @@ func handshake(s *Server) (*Connection, error) {
 }
 
 func sendPing(conn net.Conn) error {
-	err := sendMessage(conn, resp.EncodeArrayBulkStrings([]string{"PING"}))
+	err := sendBytes(conn, resp.EncodeArrayBulkStrings([]string{"PING"}))
 	if err != nil {
 		return err
 	}
@@ -73,7 +73,7 @@ func sendPing(conn net.Conn) error {
 
 func sendReplConfig(s *Server, conn net.Conn) error {
 	message := resp.EncodeArrayBulkStrings([]string{"REPLCONF", "listening-port", strconv.Itoa(s.port)})
-	err := sendMessage(conn, message)
+	err := sendBytes(conn, message)
 	if err != nil {
 		return err
 	}
@@ -89,7 +89,7 @@ func sendReplConfig(s *Server, conn net.Conn) error {
 	}
 
 	message = resp.EncodeArrayBulkStrings([]string{"REPLCONF", "capa", "psync2"})
-	err = sendMessage(conn, message)
+	err = sendBytes(conn, message)
 	if err != nil {
 		return err
 	}
@@ -107,7 +107,7 @@ func sendReplConfig(s *Server, conn net.Conn) error {
 }
 
 func sendPSYNC(_ *Server, conn net.Conn) error {
-	err := sendMessage(conn, resp.EncodeArrayBulkStrings([]string{"PSYNC", "?", "-1"}))
+	err := sendBytes(conn, resp.EncodeArrayBulkStrings([]string{"PSYNC", "?", "-1"}))
 	if err != nil {
 		return err
 	}
@@ -138,10 +138,6 @@ func sendPSYNC(_ *Server, conn net.Conn) error {
 
 	log.Println("PSYNC file response:", string(buf))
 	return nil
-}
-
-func sendMessage(conn net.Conn, message string) error {
-	return sendBytes(conn, []byte(message))
 }
 
 func sendBytes(conn net.Conn, bytes []byte) error {

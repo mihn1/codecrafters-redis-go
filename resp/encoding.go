@@ -1,35 +1,62 @@
 package resp
 
 import (
-	"fmt"
-	"strings"
+	"strconv"
 )
 
 const (
-	NULL_BULK_STRING = "$-1\r\n"
-	NULL_ARRAY       = "*-1\r\n"
+	null_bulk_string = "$-1\r\n"
+	null_array       = "*-1\r\n"
 )
 
-func EncodeBulkString(val string) string {
-	return fmt.Sprintf("$%d\r\n%s\r\n", len(val), val)
+// TODO: refacter all the functions to return []byte
+func EncodeNullBulkString() []byte {
+	return []byte(null_bulk_string)
 }
 
-func EncodeSimpleString(val string) string {
-	return fmt.Sprintf("+%s\r\n", val)
+func EncodeNullArray() []byte {
+	return []byte(null_bulk_string)
 }
 
-func EncodeArrayBulkStrings(vals []string) string {
-	bulkStrings := make([]string, 0, len(vals))
+func EncodeBulkString(val string) []byte {
+	res := make([]byte, 0, len(val)+6)
+	res = append(res, byte(BULK_STRING))
+	res = strconv.AppendInt(res, int64(len(val)), 10)
+	res = append(res, '\r', '\n')
+	res = append(res, val...)
+	return append(res, '\r', '\n')
+}
+
+func EncodeSimpleString(val string) []byte {
+	res := make([]byte, 0, len(val)+3)
+	res = append(res, byte(SIMPLE_STRING))
+	res = append(res, val...)
+	return append(res, '\r', '\n')
+}
+
+func EncodeArrayBulkStrings(vals []string) []byte {
+	res := make([]byte, 0, len(vals)+3)
+	res = append(res, byte(ARRAY))
+	res = strconv.AppendInt(res, int64(len(vals)), 10)
+	res = append(res, '\r', '\n')
 	for _, val := range vals {
-		bulkStrings = append(bulkStrings, EncodeBulkString(val))
+		res = append(res, EncodeBulkString(val)...)
 	}
-	return fmt.Sprintf("*%d\r\n%s", len(vals), strings.Join(bulkStrings, ""))
+	return res
 }
 
-func EncodeFile(buf []byte) string {
-	return fmt.Sprintf("$%d\r\n%s", len(buf), string(buf))
+func EncodeFile(buf []byte) []byte {
+	res := make([]byte, 0, len(buf)+4)
+	res = append(res, '$')
+	res = strconv.AppendInt(res, int64(len(buf)), 10)
+	res = append(res, '\r', '\n')
+	res = append(res, buf...)
+	return res
 }
 
-func EncodeError(val string) string {
-	return fmt.Sprintf("-%s\r\n", val)
+func EncodeError(val string) []byte {
+	res := make([]byte, 0, len(val)+3)
+	res = append(res, byte(ERROR))
+	res = append(res, val...)
+	return append(res, '\r', '\n')
 }

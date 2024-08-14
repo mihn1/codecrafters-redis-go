@@ -60,36 +60,36 @@ func replicate(slave *Slave, commandBuf []byte) (int, error) {
 }
 
 func ping(s *Server, c *Connection, args []string) (int, error) {
-	return c.conn.Write([]byte(resp.EncodeSimpleString(PONG)))
+	return c.conn.Write(resp.EncodeSimpleString(PONG))
 }
 
 func echo(s *Server, c *Connection, args []string) (int, error) {
-	return c.conn.Write([]byte(resp.EncodeBulkString(args[0])))
+	return c.conn.Write(resp.EncodeBulkString(args[0]))
 }
 
 func get(s *Server, c *Connection, args []string) (int, error) {
 	if len(args) < 1 {
-		return c.conn.Write([]byte(resp.EncodeError(fmt.Sprintf("ERR wrong number of arguments for GET: %v", len(args)))))
+		return c.conn.Write(resp.EncodeError(fmt.Sprintf("ERR wrong number of arguments for GET: %v", len(args))))
 	}
 
 	v, err := s.db.Get(args[0])
 	if err != nil {
 		switch e := err.(type) {
 		case *internal.KeyNotFoundError:
-			return c.conn.Write([]byte(resp.EncodeBulkString("")))
+			return c.conn.Write(resp.EncodeBulkString(""))
 		case *internal.KeyExpiredError:
-			return c.conn.Write([]byte(resp.NULL_BULK_STRING))
+			return c.conn.Write(resp.EncodeNullBulkString())
 		default:
-			return c.conn.Write([]byte(resp.EncodeError(e.Error())))
+			return c.conn.Write(resp.EncodeError(e.Error()))
 		}
 	}
 
-	return c.conn.Write([]byte(resp.EncodeBulkString(v.Value)))
+	return c.conn.Write(resp.EncodeBulkString(v.Value))
 }
 
 func set(s *Server, c *Connection, args []string) (int, error) {
 	if len(args) != 2 && len(args) != 4 {
-		return c.conn.Write([]byte(resp.EncodeError(fmt.Sprintf("ERR wrong number of arguments for SET: %v", len(args)))))
+		return c.conn.Write(resp.EncodeError(fmt.Sprintf("ERR wrong number of arguments for SET: %v", len(args))))
 	}
 
 	err := setInternal(s, args)
@@ -99,9 +99,9 @@ func set(s *Server, c *Connection, args []string) (int, error) {
 	}
 
 	if err != nil {
-		return c.conn.Write([]byte(resp.EncodeError(err.Error())))
+		return c.conn.Write(resp.EncodeError(err.Error()))
 	}
-	return c.conn.Write([]byte(resp.EncodeSimpleString(OK)))
+	return c.conn.Write(resp.EncodeSimpleString(OK))
 }
 
 func setInternal(s *Server, args []string) error {
@@ -141,25 +141,25 @@ func resolveExpiry(expiryType string, expiryNum int64) (int64, error) {
 
 func config(s *Server, c *Connection, args []string) (int, error) {
 	if len(args) == 0 {
-		return c.conn.Write([]byte(resp.EncodeError("ERR wrong number of arguments for CONFIG commands")))
+		return c.conn.Write(resp.EncodeError("ERR wrong number of arguments for CONFIG commands"))
 	}
 
 	if args[0] == "get" {
 		if len(args) != 2 {
-			return c.conn.Write([]byte(resp.EncodeError("ERR wrong number of arguments for CONFIG GET")))
+			return c.conn.Write(resp.EncodeError("ERR wrong number of arguments for CONFIG GET"))
 		}
 
 		switch args[1] {
 		case "dir":
-			return c.conn.Write([]byte(resp.EncodeArrayBulkStrings([]string{"dir", s.db.Options.Dir})))
+			return c.conn.Write(resp.EncodeArrayBulkStrings([]string{"dir", s.db.Options.Dir}))
 		case "s.dbfilename":
-			return c.conn.Write([]byte(resp.EncodeArrayBulkStrings([]string{"s.dbfilename", s.db.Options.DbFilename})))
+			return c.conn.Write(resp.EncodeArrayBulkStrings([]string{"s.dbfilename", s.db.Options.DbFilename}))
 		default:
-			return c.conn.Write([]byte(resp.EncodeError("ERR unknown CONFIG parameter")))
+			return c.conn.Write(resp.EncodeError("ERR unknown CONFIG parameter"))
 		}
 	}
 
-	return c.conn.Write([]byte(resp.EncodeError("ERR unknown CONFIG subcommand")))
+	return c.conn.Write(resp.EncodeError("ERR unknown CONFIG subcommand"))
 }
 
 func info(s *Server, c *Connection, args []string) (int, error) {
@@ -188,68 +188,80 @@ func info(s *Server, c *Connection, args []string) (int, error) {
 		)
 	}
 
-	return c.conn.Write([]byte(resp.EncodeBulkString(strings.Join(infos, "\n"))))
+	return c.conn.Write(resp.EncodeBulkString(strings.Join(infos, "\n")))
 }
 
 func replConf(s *Server, c *Connection, args []string) (int, error) {
-	if !s.isMaster {
-		return c.conn.Write([]byte(resp.EncodeError("Not eligible to serve REPLCONF")))
-	}
-
 	if len(args) == 0 {
-		return c.conn.Write([]byte(resp.EncodeError("ERR wrong number of arguments for REPLCONFIG subcommand")))
+		return c.conn.Write(resp.EncodeError("ERR wrong number of arguments for REPLCONFIG subcommand"))
 	}
 
-	var slave *Slave
-	if sl, ok := s.asMaster.slaves[c.id]; ok {
-		slave = sl
-	} else {
-		slave = &Slave{
-			connection: *c,
-			capa:       make([]string, 0),
+	if s.isMaster {
+		var slave *Slave
+		if _, ok := s.asMaster.slaves[c.id]; !ok {
+			slave = &Slave{
+				connection: *c,
+				capa:       make([]string, 0),
+			}
+			s.asMaster.slaves[c.id] = slave
 		}
-		s.asMaster.slaves[c.id] = slave
 	}
 
 	switch args[0] {
 	case "listening-port":
+		if !s.isMaster {
+			return c.conn.Write(resp.EncodeError("Not eligible to serve REPLCONF"))
+		}
 		if len(args) != 2 {
-			return c.conn.Write([]byte(resp.EncodeError("ERR wrong number of arguments for REPLCONFIG listening-port subcommand")))
+			return c.conn.Write(resp.EncodeError("ERR wrong number of arguments for REPLCONFIG listening-port subcommand"))
 		}
 		portStr := args[1]
 		port, err := strconv.Atoi(portStr)
 		if err != nil {
-			return c.conn.Write([]byte(resp.EncodeError("ERR invalid listening port")))
+			return c.conn.Write(resp.EncodeError("ERR invalid listening port"))
 		}
-		slave.listeningPort = port
+		s.asMaster.slaves[c.id].listeningPort = port
 		log.Println("Replica is listening on port:", portStr)
 	case "capa":
+		if !s.isMaster {
+			return c.conn.Write(resp.EncodeError("Not eligible to serve REPLCONF"))
+		}
 		if len(args) < 2 {
-			return c.conn.Write([]byte(resp.EncodeError("ERR wrong number of arguments for REPLCONFIG capa subcommand")))
+			return c.conn.Write(resp.EncodeError("ERR wrong number of arguments for REPLCONFIG capa subcommand"))
 		}
 		capaStr := args[1]
-		slave.capa = append(slave.capa, capaStr)
+		s.asMaster.slaves[c.id].capa = append(s.asMaster.slaves[c.id].capa, capaStr)
 		log.Println("Replica supports:", capaStr)
+	case "getack":
+		if s.isMaster {
+			return c.conn.Write(resp.EncodeError("Only slave can serve REPLCONF getack"))
+		}
+		if len(args) < 2 {
+			return c.conn.Write(resp.EncodeError("ERR wrong number of arguments for REPLCONFIG getack subcommand"))
+		}
+		// ignore the rest of the args for now
+		resArr := []string{"REPLCONF", "ACK", strconv.FormatInt(s.asMaster.repl_offset, 10)}
+		return c.conn.Write(resp.EncodeArrayBulkStrings(resArr))
 	default:
-		return c.conn.Write([]byte(resp.EncodeError("ERR unknown REPLCONFIG subcommand")))
+		return c.conn.Write(resp.EncodeError("ERR unknown REPLCONFIG subcommand"))
 	}
 
-	return c.conn.Write([]byte(resp.EncodeSimpleString(OK)))
+	return c.conn.Write(resp.EncodeSimpleString(OK))
 }
 
 func psync(s *Server, c *Connection, args []string) (int, error) {
 	if !s.isMaster {
-		return c.conn.Write([]byte(resp.EncodeError("Not eligible to serve PSYNC")))
+		return c.conn.Write(resp.EncodeError("Not eligible to serve PSYNC"))
 	}
 	if len(args) != 2 {
-		return c.conn.Write([]byte(resp.EncodeError("ERR wrong number of arguments for PSYNC")))
+		return c.conn.Write(resp.EncodeError("ERR wrong number of arguments for PSYNC"))
 	}
 
 	if _, ok := s.asMaster.slaves[c.id]; !ok {
 		return 0, fmt.Errorf("slave not found")
 	}
 
-	n, err := c.conn.Write([]byte(resp.EncodeSimpleString(fmt.Sprintf("%s %s 0", FULLRESYNC, s.asMaster.repl_id))))
+	n, err := c.conn.Write(resp.EncodeSimpleString(fmt.Sprintf("%s %s 0", FULLRESYNC, s.asMaster.repl_id)))
 	if err != nil {
 		return n, err
 	}
@@ -259,11 +271,11 @@ func psync(s *Server, c *Connection, args []string) (int, error) {
 	if err != nil {
 		return n, err
 	}
-	fileN, err := c.conn.Write([]byte(resp.EncodeFile(buf)))
+	fileN, err := c.conn.Write(resp.EncodeFile(buf))
 
 	return n + fileN, err
 }
 
 func unknown(s *Server, c *Connection, args []string) (int, error) {
-	return c.conn.Write([]byte(resp.EncodeError("ERR unknown command")))
+	return c.conn.Write(resp.EncodeError("ERR unknown command"))
 }
