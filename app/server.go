@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/codecrafters-io/redis-starter-go/internal"
 	"github.com/codecrafters-io/redis-starter-go/resp"
@@ -85,17 +86,17 @@ func NewServer(options ServerOptions) *Server {
 func (s *Server) Run() {
 	if !s.isMaster {
 		// sync with master after the server is up the running
-		log.Println("Syncing with master:", s.asSlave.masterHost, s.asSlave.masterPort)
-		connection, err := syncWithMaster(s)
+		masterConnection, err := syncWithMaster(s)
 		if err != nil {
-			log.Println("Error syncing with master:", err)
+			log.Fatalln("Error syncing with master:", err)
 			os.Exit(1)
 		}
 		log.Println("Done syncing with master:", s.asSlave.masterHost, s.asSlave.masterPort)
-		s.asSlave.masterConnection = connection
 		// Serving master connection after this slave is up and listening
+		log.Println("Handling master connection")
+		s.asSlave.masterConnection = masterConnection
 		go s.handleConnection(s.asSlave.masterConnection)
-		// time.Sleep(1 * time.Second) // waiting for getting propagated keys from master
+		time.Sleep(1 * time.Second) // waiting for getting propagated keys from master
 	}
 
 	addr := fmt.Sprintf("0.0.0.0:%d", s.port)
@@ -111,7 +112,7 @@ func (s *Server) Run() {
 		conn, err := l.Accept()
 		if err != nil {
 			log.Println("Error accepting connection: ", err.Error())
-			os.Exit(1)
+			continue
 		}
 
 		connection := NewConnection(getConnID(), conn)
@@ -119,11 +120,17 @@ func (s *Server) Run() {
 	}
 }
 
-func (server *Server) handleConnection(c *Connection) {
-	defer c.conn.Close()
-	// TODO: clean closed slave connection
+func (s *Server) handleConnection(c *Connection) {
+	defer func() {
+		c.conn.Close()
+		if s.isMaster {
+			s.mu.Lock()
+			delete(s.asMaster.slaves, c.id)
+			s.mu.Unlock()
+		}
+	}()
 
-	log.Println("Received connection from:", c.conn.RemoteAddr())
+	log.Println("Handling connection from:", c.conn.RemoteAddr())
 	reader := bufio.NewReader(c.conn)
 
 	for {
@@ -145,7 +152,7 @@ func (server *Server) handleConnection(c *Connection) {
 
 		log.Printf("SERVER: Client %v sent command: %v - %v\n", c.conn.RemoteAddr(), command.CommandType, command.Agrs)
 
-		_, err = HandleCommand(server, c, command)
+		_, err = HandleCommand(s, c, command)
 		if err != nil {
 			log.Fatalf("Error handling command %v: %v", command, err)
 			continue

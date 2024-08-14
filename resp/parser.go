@@ -3,7 +3,6 @@ package resp
 import (
 	"bufio"
 	"fmt"
-	"io"
 	"strconv"
 	"strings"
 )
@@ -84,13 +83,13 @@ func ReadNextResp(reader *bufio.Reader) (RESP, error) {
 
 func ReadLine(r *bufio.Reader) ([]byte, error) {
 	line, err := r.ReadBytes(LF)
-	if err != nil && err != io.EOF {
+	if err != nil {
 		return nil, err
 	}
 
-	if err == io.EOF && len(line) == 0 {
-		return nil, io.EOF
-	}
+	// if err == io.EOF && len(line) == 0 {
+	// 	return nil, io.EOF
+	// }
 
 	if len(line) == 0 {
 		return []byte{}, nil

@@ -47,7 +47,7 @@ func resolveHandler(command CommandType) func(*Server, *Connection, []string) (i
 
 func maybeReplicateCommand(s *Server, command *Command) {
 	if command.CommandType == Set && s.isMaster && len(s.asMaster.slaves) > 0 {
-		log.Println("Replicating command to", len(s.asMaster.slaves), "slaves:", string(command.Raw))
+		log.Println("Replicating command to", len(s.asMaster.slaves), "slaves:")
 		for _, slave := range s.asMaster.slaves {
 			go replicate(slave, command.Raw)
 		}
@@ -196,8 +196,10 @@ func replConf(s *Server, c *Connection, args []string) (int, error) {
 		return c.conn.Write(resp.EncodeError("ERR wrong number of arguments for REPLCONFIG subcommand"))
 	}
 
+	// TODO: move this logic to be handled by the master struct
 	if s.isMaster {
 		var slave *Slave
+		s.mu.Lock()
 		if _, ok := s.asMaster.slaves[c.id]; !ok {
 			slave = &Slave{
 				connection: *c,
@@ -205,6 +207,7 @@ func replConf(s *Server, c *Connection, args []string) (int, error) {
 			}
 			s.asMaster.slaves[c.id] = slave
 		}
+		s.mu.Unlock()
 	}
 
 	switch args[0] {

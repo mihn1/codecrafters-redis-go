@@ -13,12 +13,17 @@ import (
 
 func syncWithMaster(s *Server) (*Connection, error) {
 	connection, err := handshake(s)
+	// if err == nil {
+	// 	log.Println("Handling master connection")
+	// 	s.asSlave.masterConnection = connection
+	// 	go s.handleConnection(s.asSlave.masterConnection)
+	// }
 	return connection, err
 }
 
 func handshake(s *Server) (*Connection, error) {
 	masterAddr := fmt.Sprintf("%s:%d", s.asSlave.masterHost, s.asSlave.masterPort)
-	log.Println("Syncing...", masterAddr)
+	log.Println("Syncing with master...", masterAddr)
 	conn, err := net.Dial("tcp", masterAddr)
 	if err != nil {
 		log.Fatalf("Error connecting to master: %v", err)
@@ -43,6 +48,7 @@ func handshake(s *Server) (*Connection, error) {
 		return connection, err
 	}
 
+	log.Println("Sending PSYNC to master")
 	err = sendPSYNC(s, conn)
 	if err != nil {
 		log.Fatalf("Error sending PSYNC: %v", err)
@@ -123,9 +129,10 @@ func sendPSYNC(_ *Server, conn net.Conn) error {
 	log.Println("PSYNC response:", string(res.Data[0]))
 
 	b, err := resp.ReadLine(reader)
-	if err != nil && err != io.EOF {
+	if err != nil {
 		return err
 	}
+	log.Printf("PSYNC file metadata response: %q\n", string(b))
 	size, err := strconv.Atoi(string(b[1 : len(b)-2]))
 	if err != nil {
 		return err
@@ -136,7 +143,7 @@ func sendPSYNC(_ *Server, conn net.Conn) error {
 		return err
 	}
 
-	log.Println("PSYNC file response:", string(buf))
+	log.Printf("PSYNC file response %d bytes\n", len(buf))
 	return nil
 }
 
