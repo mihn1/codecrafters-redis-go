@@ -96,7 +96,7 @@ func (s *Server) Run() {
 		log.Println("Handling master connection")
 		s.asSlave.masterConnection = masterConnection
 		go s.handleConnection(s.asSlave.masterConnection)
-		time.Sleep(1 * time.Second) // waiting for getting propagated keys from master
+		time.Sleep(2 * time.Second) // waiting for getting propagated keys from master
 	}
 
 	addr := fmt.Sprintf("0.0.0.0:%d", s.port)
