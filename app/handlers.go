@@ -185,7 +185,9 @@ func config(s *Server, c *Connection, cmd *Command) (int, error) {
 }
 
 func wait(s *Server, c *Connection, cmd *Command) (int, error) {
-	replCnt := cmd.ReplCnt
+	if !s.isMaster {
+		return c.conn.Write(resp.EncodeError("ERR only available in master mode"))
+	}
 
 	if len(cmd.Agrs) != 2 {
 		return c.conn.Write(resp.EncodeError("ERR wrong number of arguments for WAIT"))
@@ -201,7 +203,7 @@ func wait(s *Server, c *Connection, cmd *Command) (int, error) {
 		return c.conn.Write(resp.EncodeError("Innalid timeout of arguments for WAIT"))
 	}
 	log.Println("numReps:", numReps, "timeout:", timeout)
-	return c.conn.Write(resp.EncodeInterger(int64(replCnt)))
+	return c.conn.Write(resp.EncodeInterger(int64(len(s.asMaster.slaves))))
 }
 
 func info(s *Server, c *Connection, cmd *Command) (int, error) {

@@ -135,7 +135,7 @@ func sendPSYNC(_ *Server, c *Connection) error {
 	// TODO: use resp parser to read this file
 
 	n, err := c.reader.Read(buf)
-	log.Printf("PSYNC file response %d bytes: %q\n", n, string(buf[:n]))
+	log.Printf("PSYNC file response %d bytes\n", n)
 	if err != nil {
 		return err
 	}
