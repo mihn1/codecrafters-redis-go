@@ -34,6 +34,13 @@ func EncodeSimpleString(val string) []byte {
 	return append(res, '\r', '\n')
 }
 
+func EncodeInterger(val int64) []byte {
+	res := make([]byte, 0, 16)
+	res = append(res, byte(INTEGER))
+	res = strconv.AppendInt(res, val, 10)
+	return append(res, '\r', '\n')
+}
+
 func EncodeArrayBulkStrings(vals []string) []byte {
 	res := make([]byte, 0, len(vals)+3)
 	res = append(res, byte(ARRAY))

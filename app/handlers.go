@@ -24,6 +24,7 @@ var commandHandlers = map[CommandType]func(*Server, *Connection, []string) (int,
 	Set:      set,
 	Get:      get,
 	Info:     info,
+	Wait:     wait,
 	Config:   config,
 	ReplConf: replConf,
 	Psync:    psync,
@@ -174,6 +175,14 @@ func config(s *Server, c *Connection, args []string) (int, error) {
 	}
 
 	return c.conn.Write(resp.EncodeError("ERR unknown CONFIG subcommand"))
+}
+
+func wait(s *Server, c *Connection, args []string) (int, error) {
+	if len(args) != 2 {
+		return c.conn.Write(resp.EncodeError("ERR wrong number of arguments for WAIT"))
+	}
+
+	return c.conn.Write(resp.EncodeInterger(0))
 }
 
 func info(s *Server, c *Connection, args []string) (int, error) {

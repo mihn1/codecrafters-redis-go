@@ -21,6 +21,7 @@ const (
 	ReplConf CommandType = "replconf"
 	Psync    CommandType = "psync"
 	Config   CommandType = "config"
+	Wait     CommandType = "wait"
 
 	Unknown CommandType = "unknown"
 )
