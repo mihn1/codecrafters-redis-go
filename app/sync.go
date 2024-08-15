@@ -142,3 +142,31 @@ func sendPSYNC(_ *Server, c *Connection) error {
 
 	return nil
 }
+
+func sendGETACK(slave *Slave) error {
+	message := resp.EncodeArrayBulkStrings([]string{string(ReplConf), "GETACK", "*"})
+	return slave.connection.sendBytes(message)
+
+	// rp, err := resp.ReadNextResp(slave.connection.reader)
+	// if err != nil {
+	// 	return ackOffset, err
+	// }
+
+	// log.Println("GETACK response:", string(rp.Raw))
+	// if rp.Type != resp.INTEGER {
+	// 	return ackOffset, fmt.Errorf("expect INTEGER, getting %v", rp.Type)
+	// }
+
+	// if len(rp.Data) != 1 {
+	// 	return ackOffset, fmt.Errorf("invalid ACk data")
+	// }
+
+	// ackOffset, err = strconv.ParseInt(string(rp.Data[0]), 10, 64)
+	// if err != nil {
+	// 	return ackOffset, err
+	// }
+
+	// log.Printf("Updating slave %v offset to %v\n", slave.connection.id, ackOffset)
+	// slave.ackOffset = ackOffset
+	// return ackOffset, nil
+}

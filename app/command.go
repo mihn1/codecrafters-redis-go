@@ -28,7 +28,7 @@ const (
 
 type Command struct {
 	CommandType CommandType
-	Agrs        []string
+	Args        []string
 	Raw         []byte
 	ReplCnt     int32
 }
@@ -44,13 +44,13 @@ func ParseCommandFromRESP(r resp.RESP) (*Command, error) {
 
 	command := &Command{
 		Raw:  r.Raw,
-		Agrs: make([]string, 0, len(r.Data)-1),
+		Args: make([]string, 0, len(r.Data)-1),
 	}
 
 	command.CommandType = CommandType(toLowerString(r.Data[0]))
 
 	for _, b := range r.Data[1:] {
-		command.Agrs = append(command.Agrs, toLowerString(b))
+		command.Args = append(command.Args, toLowerString(b))
 	}
 
 	return command, nil
@@ -72,7 +72,7 @@ func ParseCommandFromRawBytes(buffer []byte) (*Command, error) {
 	}
 
 	command.CommandType = CommandType(tokens[0])
-	command.Agrs = tokens[1:]
+	command.Args = tokens[1:]
 
 	return command, nil
 }

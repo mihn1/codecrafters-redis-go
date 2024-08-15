@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/codecrafters-io/redis-starter-go/internal"
 	"github.com/codecrafters-io/redis-starter-go/resp"
@@ -40,36 +41,43 @@ func HandleCommand(s *Server, c *Connection, cmd *Command) (int, error) {
 		if isFromMaster(s, c) {
 			log.Printf("Received %v bytes from master:", len(cmd.Raw))
 			// s.mu.Lock() // Don't need to lock cause a connection is handled sequentially
-			s.asSlave.offset += int64(len(cmd.Raw))
+			s.asSlave.offset += int64(len(cmd.Raw)) // TODO: Handle write offset and total offset
 			// s.mu.Unlock()
 		}
 	}
 	return n, err
 }
 
-func resolveHandler(command CommandType) func(*Server, *Connection, *Command) (int, error) {
-	if f, ok := commandHandlers[command]; ok {
+func resolveHandler(cmd CommandType) func(*Server, *Connection, *Command) (int, error) {
+	if f, ok := commandHandlers[cmd]; ok {
 		return f
 	}
 	return unknown
 }
 
-func maybeReplicateCommand(s *Server, command *Command) {
-	if command.CommandType == Set && s.isMaster && len(s.asMaster.slaves) > 0 {
-		log.Println("Replicating command to", len(s.asMaster.slaves), "slaves:")
-		for _, slave := range s.asMaster.slaves {
-			go replicate(slave, command)
+func maybeReplicateCommand(s *Server, cmd *Command) {
+	if cmd.CommandType == Set && s.isMaster {
+		// FOR NOW: master's repl offset increases with each write command
+		s.mu.Lock()
+		s.asMaster.repl_offset += int64(len(cmd.Raw))
+		s.mu.Unlock()
+
+		if len(s.asMaster.slaves) > 0 {
+			log.Println("Replicating command to", len(s.asMaster.slaves), "slaves")
+			for _, slave := range s.asMaster.slaves {
+				go replicate(slave, cmd)
+			}
 		}
 	}
 }
 
 func replicate(slave *Slave, command *Command) (int, error) {
-	// TODO: better error handling
 	n, err := slave.connection.conn.Write(command.Raw)
 	if err != nil {
 		log.Printf("Error replicating %v to %v: %v\n", command.CommandType, slave.connection.conn.RemoteAddr(), err)
 	} else {
 		atomic.AddInt32(&command.ReplCnt, 1)
+		atomic.AddInt64(&slave.syncOffset, int64(n))
 	}
 	return n, nil
 }
@@ -86,15 +94,15 @@ func ping(s *Server, c *Connection, cmd *Command) (int, error) {
 }
 
 func echo(s *Server, c *Connection, cmd *Command) (int, error) {
-	return c.conn.Write(resp.EncodeBulkString(cmd.Agrs[0]))
+	return c.conn.Write(resp.EncodeBulkString(cmd.Args[0]))
 }
 
 func get(s *Server, c *Connection, cmd *Command) (int, error) {
-	if len(cmd.Agrs) < 1 {
-		return c.conn.Write(resp.EncodeError(fmt.Sprintf("ERR wrong number of arguments for GET: %v", len(cmd.Agrs))))
+	if len(cmd.Args) < 1 {
+		return c.conn.Write(resp.EncodeError(fmt.Sprintf("wrong number of arguments for GET: %v", len(cmd.Args))))
 	}
 
-	v, err := s.db.Get(cmd.Agrs[0])
+	v, err := s.db.Get(cmd.Args[0])
 	if err != nil {
 		switch e := err.(type) {
 		case *internal.KeyNotFoundError:
@@ -110,8 +118,8 @@ func get(s *Server, c *Connection, cmd *Command) (int, error) {
 }
 
 func set(s *Server, c *Connection, cmd *Command) (int, error) {
-	if len(cmd.Agrs) != 2 && len(cmd.Agrs) != 4 {
-		return c.conn.Write(resp.EncodeError(fmt.Sprintf("ERR wrong number of arguments for SET: %v", len(cmd.Agrs))))
+	if len(cmd.Args) != 2 && len(cmd.Args) != 4 {
+		return c.conn.Write(resp.EncodeError(fmt.Sprintf("wrong number of arguments for SET: %v", len(cmd.Args))))
 	}
 
 	err := setInternal(s, cmd)
@@ -127,14 +135,14 @@ func set(s *Server, c *Connection, cmd *Command) (int, error) {
 }
 
 func setInternal(s *Server, cmd *Command) error {
-	key := cmd.Agrs[0]
-	val := cmd.Agrs[1]
+	key := cmd.Args[0]
+	val := cmd.Args[1]
 	var expiryMilis int64 = s.db.Options.ExpiryTime
 
 	// resolve expiry
-	if len(cmd.Agrs) == 4 {
-		expiryType := cmd.Agrs[2]
-		expiryNum, err := strconv.ParseInt(cmd.Agrs[3], 10, 64)
+	if len(cmd.Args) == 4 {
+		expiryType := cmd.Args[2]
+		expiryNum, err := strconv.ParseInt(cmd.Args[3], 10, 64)
 		if err != nil {
 			return err
 		}
@@ -162,48 +170,81 @@ func resolveExpiry(expiryType string, expiryNum int64) (int64, error) {
 }
 
 func config(s *Server, c *Connection, cmd *Command) (int, error) {
-	if len(cmd.Agrs) == 0 {
-		return c.conn.Write(resp.EncodeError("ERR wrong number of arguments for CONFIG commands"))
+	if len(cmd.Args) == 0 {
+		return c.conn.Write(resp.EncodeError("wrong number of arguments for CONFIG commands"))
 	}
 
-	if cmd.Agrs[0] == "get" {
-		if len(cmd.Agrs) != 2 {
-			return c.conn.Write(resp.EncodeError("ERR wrong number of arguments for CONFIG GET"))
+	if cmd.Args[0] == "get" {
+		if len(cmd.Args) != 2 {
+			return c.conn.Write(resp.EncodeError("wrong number of arguments for CONFIG GET"))
 		}
 
-		switch cmd.Agrs[1] {
+		switch cmd.Args[1] {
 		case "dir":
 			return c.conn.Write(resp.EncodeArrayBulkStrings([]string{"dir", s.db.Options.Dir}))
 		case "s.dbfilename":
 			return c.conn.Write(resp.EncodeArrayBulkStrings([]string{"s.dbfilename", s.db.Options.DbFilename}))
 		default:
-			return c.conn.Write(resp.EncodeError("ERR unknown CONFIG parameter"))
+			return c.conn.Write(resp.EncodeError("unknown CONFIG parameter"))
 		}
 	}
 
-	return c.conn.Write(resp.EncodeError("ERR unknown CONFIG subcommand"))
+	return c.conn.Write(resp.EncodeError("unknown CONFIG subcommand"))
 }
 
 func wait(s *Server, c *Connection, cmd *Command) (int, error) {
 	if !s.isMaster {
-		return c.conn.Write(resp.EncodeError("ERR only available in master mode"))
+		return c.conn.Write(resp.EncodeError("only available in master mode"))
 	}
 
-	if len(cmd.Agrs) != 2 {
-		return c.conn.Write(resp.EncodeError("ERR wrong number of arguments for WAIT"))
+	if len(cmd.Args) != 2 {
+		return c.conn.Write(resp.EncodeError("wrong number of arguments for WAIT"))
 	}
 
-	numReps, err := strconv.Atoi(cmd.Agrs[0])
+	numRepls, err := strconv.Atoi(cmd.Args[0])
 	if err != nil {
 		return c.conn.Write(resp.EncodeError("Innalid numreplicas of arguments for WAIT"))
 	}
 
-	timeout, err := strconv.Atoi(cmd.Agrs[1])
+	timeout, err := strconv.Atoi(cmd.Args[1])
 	if err != nil {
 		return c.conn.Write(resp.EncodeError("Innalid timeout of arguments for WAIT"))
 	}
-	log.Println("numReps:", numReps, "timeout:", timeout)
-	return c.conn.Write(resp.EncodeInterger(int64(len(s.asMaster.slaves))))
+	log.Println("numRepls:", numRepls, "timeout:", timeout)
+	cnt := countReplicasAcked(s.asMaster, numRepls, timeout)
+	return c.conn.Write(resp.EncodeInterger(int64(cnt)))
+}
+
+func countReplicasAcked(m AsMasterInfo, numRepls int, timeoutMilis int) int {
+	repl_offset := m.repl_offset
+	count := 0 // master itself
+	sentGetAcks := false
+	timer := time.NewTimer(time.Duration(timeoutMilis) * time.Millisecond)
+	for {
+		select {
+		case <-timer.C:
+			return count
+		default:
+			tmp := 0
+			for _, slave := range m.slaves {
+				// log.Println("slave", slave.connection.id, "ackOffset:", slave.ackOffset, "repl_offset:", repl_offset)
+				if slave.ackOffset >= repl_offset {
+					tmp += 1
+					if tmp > count {
+						count = tmp
+					}
+				} else if !sentGetAcks {
+					go sendGETACK(slave)
+				}
+			}
+			sentGetAcks = true // Just send 1 round of GETACK
+			if count >= numRepls {
+				timer.Stop()
+				return count
+			}
+			time.Sleep(time.Duration(100) * time.Millisecond) // avoid CPU overload
+		}
+	}
 }
 
 func info(s *Server, c *Connection, cmd *Command) (int, error) {
@@ -220,9 +261,9 @@ func info(s *Server, c *Connection, cmd *Command) (int, error) {
 		"role:"+role,
 	)
 
-	if len(cmd.Agrs) > 0 {
+	if len(cmd.Args) > 0 {
 		// TODO: add more info
-		log.Println("TODO: add more info for cmd.Agrs:", cmd.Agrs)
+		log.Println("TODO: add more info for cmd.Agrs:", cmd.Args)
 	}
 
 	if s.isMaster {
@@ -236,8 +277,8 @@ func info(s *Server, c *Connection, cmd *Command) (int, error) {
 }
 
 func replConf(s *Server, c *Connection, cmd *Command) (int, error) {
-	if len(cmd.Agrs) == 0 {
-		return c.conn.Write(resp.EncodeError("ERR wrong number of arguments for REPLCONFIG subcommand"))
+	if len(cmd.Args) == 0 {
+		return c.conn.Write(resp.EncodeError("wrong number of arguments for REPLCONFIG subcommand"))
 	}
 
 	// TODO: move this logic to be handled by the master struct
@@ -246,7 +287,7 @@ func replConf(s *Server, c *Connection, cmd *Command) (int, error) {
 		s.mu.Lock()
 		if _, ok := s.asMaster.slaves[c.id]; !ok {
 			slave = &Slave{
-				connection: *c,
+				connection: c,
 				capa:       make([]string, 0),
 			}
 			s.asMaster.slaves[c.id] = slave
@@ -254,18 +295,18 @@ func replConf(s *Server, c *Connection, cmd *Command) (int, error) {
 		s.mu.Unlock()
 	}
 
-	switch cmd.Agrs[0] {
+	switch cmd.Args[0] {
 	case "listening-port":
 		if !s.isMaster {
 			return c.conn.Write(resp.EncodeError("Not eligible to serve REPLCONF"))
 		}
-		if len(cmd.Agrs) != 2 {
-			return c.conn.Write(resp.EncodeError("ERR wrong number of arguments for REPLCONFIG listening-port subcommand"))
+		if len(cmd.Args) != 2 {
+			return c.conn.Write(resp.EncodeError("wrong number of arguments for REPLCONFIG listening-port subcommand"))
 		}
-		portStr := cmd.Agrs[1]
+		portStr := cmd.Args[1]
 		port, err := strconv.Atoi(portStr)
 		if err != nil {
-			return c.conn.Write(resp.EncodeError("ERR invalid listening port"))
+			return c.conn.Write(resp.EncodeError("invalid listening port"))
 		}
 		s.asMaster.slaves[c.id].listeningPort = port
 		log.Println("Replica is listening on port:", portStr)
@@ -273,24 +314,38 @@ func replConf(s *Server, c *Connection, cmd *Command) (int, error) {
 		if !s.isMaster {
 			return c.conn.Write(resp.EncodeError("Not eligible to serve REPLCONF"))
 		}
-		if len(cmd.Agrs) < 2 {
-			return c.conn.Write(resp.EncodeError("ERR wrong number of arguments for REPLCONFIG capa subcommand"))
+		if len(cmd.Args) < 2 {
+			return c.conn.Write(resp.EncodeError("wrong number of arguments for REPLCONFIG capa subcommand"))
 		}
-		capaStr := cmd.Agrs[1]
+		capaStr := cmd.Args[1]
 		s.asMaster.slaves[c.id].capa = append(s.asMaster.slaves[c.id].capa, capaStr)
 		log.Println("Replica supports:", capaStr)
 	case "getack":
 		if s.isMaster {
 			return c.conn.Write(resp.EncodeError("Only slave can serve REPLCONF getack"))
 		}
-		if len(cmd.Agrs) < 2 {
-			return c.conn.Write(resp.EncodeError("ERR wrong number of arguments for REPLCONFIG getack subcommand"))
+		if len(cmd.Args) < 2 {
+			return c.conn.Write(resp.EncodeError("wrong number of arguments for REPLCONFIG getack subcommand"))
 		}
 		// ignore the rest of the cmd.Agrs for now
 		resArr := []string{"REPLCONF", "ACK", strconv.FormatInt(s.asSlave.offset, 10)}
 		return c.conn.Write(resp.EncodeArrayBulkStrings(resArr))
+	case "ack":
+		if !s.isMaster {
+			return c.conn.Write(resp.EncodeError("Not eligible to serve REPLCONF ACK"))
+		}
+		if len(cmd.Args) < 2 {
+			return c.conn.Write(resp.EncodeError("wrong number of arguments for REPLCONFIG ACK subcommand"))
+		}
+		offset, err := strconv.ParseInt(cmd.Args[1], 10, 64)
+		if err != nil {
+			return c.conn.Write(resp.EncodeError("invalid offset"))
+		}
+		s.asMaster.slaves[c.id].ackOffset = offset
+		log.Println("Replica ACKed offset:", offset)
+		return 0, nil
 	default:
-		return c.conn.Write(resp.EncodeError("ERR unknown REPLCONFIG subcommand"))
+		return c.conn.Write(resp.EncodeError("unknown REPLCONFIG subcommand"))
 	}
 
 	return c.conn.Write(resp.EncodeSimpleString(OK))
@@ -300,8 +355,8 @@ func psync(s *Server, c *Connection, cmd *Command) (int, error) {
 	if !s.isMaster {
 		return c.conn.Write(resp.EncodeError("Not eligible to serve PSYNC"))
 	}
-	if len(cmd.Agrs) != 2 {
-		return c.conn.Write(resp.EncodeError("ERR wrong number of arguments for PSYNC"))
+	if len(cmd.Args) != 2 {
+		return c.conn.Write(resp.EncodeError("wrong number of arguments for PSYNC"))
 	}
 
 	if _, ok := s.asMaster.slaves[c.id]; !ok {
@@ -324,5 +379,5 @@ func psync(s *Server, c *Connection, cmd *Command) (int, error) {
 }
 
 func unknown(s *Server, c *Connection, cmd *Command) (int, error) {
-	return c.conn.Write(resp.EncodeError("ERR unknown command"))
+	return c.conn.Write(resp.EncodeError("unknown command"))
 }

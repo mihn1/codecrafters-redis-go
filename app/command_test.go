@@ -20,7 +20,7 @@ func TestParseEchoCommand(t *testing.T) {
 	}
 
 	assert.EqualValues(t, Echo, command.CommandType)
-	assert.Equal(t, []string{"hey"}, command.Agrs)
+	assert.Equal(t, []string{"hey"}, command.Args)
 }
 
 func TestParseREPLCONF_CAPACommand(t *testing.T) {
@@ -33,7 +33,7 @@ func TestParseREPLCONF_CAPACommand(t *testing.T) {
 	}
 
 	assert.EqualValues(t, ReplConf, command.CommandType)
-	assert.Equal(t, []string{"hey"}, command.Agrs)
+	assert.Equal(t, []string{"hey"}, command.Args)
 }
 
 func TestParseEchoCommandFromRESP(t *testing.T) {

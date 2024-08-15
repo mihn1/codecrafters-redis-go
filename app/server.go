@@ -39,9 +39,11 @@ type AsMasterInfo struct {
 }
 
 type Slave struct {
-	connection    Connection
+	connection    *Connection
 	listeningPort int
 	capa          []string
+	syncOffset    int64 // Offset sent by the master
+	ackOffset     int64 // Offset acked by the slave through GETACk - ACK commands
 }
 
 type AsSlaveInfo struct {
@@ -150,7 +152,7 @@ func (s *Server) handleConnection(c *Connection) {
 			continue
 		}
 
-		log.Printf("SERVER: Client %v sent command: %v - %v\n", c.conn.RemoteAddr(), command.CommandType, command.Agrs)
+		log.Printf("SERVER: Client %v sent command: %v - %v\n", c.conn.RemoteAddr(), command.CommandType, command.Args)
 
 		_, err = HandleCommand(s, c, command)
 		if err != nil {
