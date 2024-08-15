@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"io"
 	"log"
@@ -49,7 +48,7 @@ type AsSlaveInfo struct {
 	masterHost       string
 	masterPort       int
 	masterConnection *Connection
-	offset        int64
+	offset           int64
 }
 
 func NewServer(options ServerOptions) *Server {
@@ -102,7 +101,7 @@ func (s *Server) Run() {
 	addr := fmt.Sprintf("0.0.0.0:%d", s.port)
 	l, err := net.Listen("tcp", addr)
 	if err != nil {
-		log.Println("Failed to bind to port 6379")
+		log.Println("Failed to bind to port", s.port)
 		os.Exit(1)
 	}
 	defer l.Close()
@@ -123,6 +122,7 @@ func (s *Server) Run() {
 func (s *Server) handleConnection(c *Connection) {
 	defer func() {
 		c.conn.Close()
+		// TODO: move this logic to be handled by the master struct
 		if s.isMaster {
 			s.mu.Lock()
 			delete(s.asMaster.slaves, c.id)
@@ -131,10 +131,10 @@ func (s *Server) handleConnection(c *Connection) {
 	}()
 
 	log.Println("Handling connection from:", c.conn.RemoteAddr())
-	reader := bufio.NewReader(c.conn)
+	closed := false
 
-	for {
-		rp, err := resp.ReadNextResp(reader)
+	for !closed {
+		rp, err := resp.ReadNextResp(c.reader)
 		if err != nil {
 			if err == io.EOF {
 				log.Println("Client closed connection")

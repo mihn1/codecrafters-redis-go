@@ -30,6 +30,7 @@ type Command struct {
 	CommandType CommandType
 	Agrs        []string
 	Raw         []byte
+	ReplCnt     int32
 }
 
 func ParseCommandFromRESP(r resp.RESP) (*Command, error) {

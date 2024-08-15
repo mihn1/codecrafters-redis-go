@@ -6,6 +6,7 @@ import (
 	"log"
 	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"github.com/codecrafters-io/redis-starter-go/internal"
 	"github.com/codecrafters-io/redis-starter-go/resp"
@@ -18,7 +19,7 @@ const (
 	EMPTY_FILE = "524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2"
 )
 
-var commandHandlers = map[CommandType]func(*Server, *Connection, []string) (int, error){
+var commandHandlers = map[CommandType]func(*Server, *Connection, *Command) (int, error){
 	Ping:     ping,
 	Echo:     echo,
 	Set:      set,
@@ -30,23 +31,23 @@ var commandHandlers = map[CommandType]func(*Server, *Connection, []string) (int,
 	Psync:    psync,
 }
 
-func HandleCommand(s *Server, c *Connection, command *Command) (int, error) {
-	handler := resolveHandler(command.CommandType)
-	n, err := handler(s, c, command.Agrs)
+func HandleCommand(s *Server, c *Connection, cmd *Command) (int, error) {
+	handler := resolveHandler(cmd.CommandType)
+	n, err := handler(s, c, cmd)
 	if err == nil {
-		maybeReplicateCommand(s, command)
+		maybeReplicateCommand(s, cmd)
 
 		if isFromMaster(s, c) {
-			log.Printf("Received %v bytes from master:", len(command.Raw))
+			log.Printf("Received %v bytes from master:", len(cmd.Raw))
 			// s.mu.Lock() // Don't need to lock cause a connection is handled sequentially
-			s.asSlave.offset += int64(len(command.Raw))
+			s.asSlave.offset += int64(len(cmd.Raw))
 			// s.mu.Unlock()
 		}
 	}
 	return n, err
 }
 
-func resolveHandler(command CommandType) func(*Server, *Connection, []string) (int, error) {
+func resolveHandler(command CommandType) func(*Server, *Connection, *Command) (int, error) {
 	if f, ok := commandHandlers[command]; ok {
 		return f
 	}
@@ -57,37 +58,43 @@ func maybeReplicateCommand(s *Server, command *Command) {
 	if command.CommandType == Set && s.isMaster && len(s.asMaster.slaves) > 0 {
 		log.Println("Replicating command to", len(s.asMaster.slaves), "slaves:")
 		for _, slave := range s.asMaster.slaves {
-			go replicate(slave, command.Raw)
+			go replicate(slave, command)
 		}
 	}
 }
 
-func replicate(slave *Slave, commandBuf []byte) (int, error) {
+func replicate(slave *Slave, command *Command) (int, error) {
 	// TODO: better error handling
-	return slave.connection.conn.Write(commandBuf)
+	n, err := slave.connection.conn.Write(command.Raw)
+	if err != nil {
+		log.Printf("Error replicating %v to %v: %v\n", command.CommandType, slave.connection.conn.RemoteAddr(), err)
+	} else {
+		atomic.AddInt32(&command.ReplCnt, 1)
+	}
+	return n, nil
 }
 
 func isFromMaster(s *Server, c *Connection) bool {
 	return !s.isMaster && s.asSlave.masterConnection.id == c.id
 }
 
-func ping(s *Server, c *Connection, args []string) (int, error) {
+func ping(s *Server, c *Connection, cmd *Command) (int, error) {
 	if isFromMaster(s, c) {
 		return 0, nil // Master connection -> do nothing
 	}
 	return c.conn.Write(resp.EncodeSimpleString(PONG))
 }
 
-func echo(s *Server, c *Connection, args []string) (int, error) {
-	return c.conn.Write(resp.EncodeBulkString(args[0]))
+func echo(s *Server, c *Connection, cmd *Command) (int, error) {
+	return c.conn.Write(resp.EncodeBulkString(cmd.Agrs[0]))
 }
 
-func get(s *Server, c *Connection, args []string) (int, error) {
-	if len(args) < 1 {
-		return c.conn.Write(resp.EncodeError(fmt.Sprintf("ERR wrong number of arguments for GET: %v", len(args))))
+func get(s *Server, c *Connection, cmd *Command) (int, error) {
+	if len(cmd.Agrs) < 1 {
+		return c.conn.Write(resp.EncodeError(fmt.Sprintf("ERR wrong number of arguments for GET: %v", len(cmd.Agrs))))
 	}
 
-	v, err := s.db.Get(args[0])
+	v, err := s.db.Get(cmd.Agrs[0])
 	if err != nil {
 		switch e := err.(type) {
 		case *internal.KeyNotFoundError:
@@ -102,12 +109,12 @@ func get(s *Server, c *Connection, args []string) (int, error) {
 	return c.conn.Write(resp.EncodeBulkString(v.Value))
 }
 
-func set(s *Server, c *Connection, args []string) (int, error) {
-	if len(args) != 2 && len(args) != 4 {
-		return c.conn.Write(resp.EncodeError(fmt.Sprintf("ERR wrong number of arguments for SET: %v", len(args))))
+func set(s *Server, c *Connection, cmd *Command) (int, error) {
+	if len(cmd.Agrs) != 2 && len(cmd.Agrs) != 4 {
+		return c.conn.Write(resp.EncodeError(fmt.Sprintf("ERR wrong number of arguments for SET: %v", len(cmd.Agrs))))
 	}
 
-	err := setInternal(s, args)
+	err := setInternal(s, cmd)
 	if isFromMaster(s, c) {
 		// No need to respond to the master
 		return 0, err
@@ -119,15 +126,15 @@ func set(s *Server, c *Connection, args []string) (int, error) {
 	return c.conn.Write(resp.EncodeSimpleString(OK))
 }
 
-func setInternal(s *Server, args []string) error {
-	key := args[0]
-	val := args[1]
+func setInternal(s *Server, cmd *Command) error {
+	key := cmd.Agrs[0]
+	val := cmd.Agrs[1]
 	var expiryMilis int64 = s.db.Options.ExpiryTime
 
 	// resolve expiry
-	if len(args) == 4 {
-		expiryType := args[2]
-		expiryNum, err := strconv.ParseInt(args[3], 10, 64)
+	if len(cmd.Agrs) == 4 {
+		expiryType := cmd.Agrs[2]
+		expiryNum, err := strconv.ParseInt(cmd.Agrs[3], 10, 64)
 		if err != nil {
 			return err
 		}
@@ -154,17 +161,17 @@ func resolveExpiry(expiryType string, expiryNum int64) (int64, error) {
 	}
 }
 
-func config(s *Server, c *Connection, args []string) (int, error) {
-	if len(args) == 0 {
+func config(s *Server, c *Connection, cmd *Command) (int, error) {
+	if len(cmd.Agrs) == 0 {
 		return c.conn.Write(resp.EncodeError("ERR wrong number of arguments for CONFIG commands"))
 	}
 
-	if args[0] == "get" {
-		if len(args) != 2 {
+	if cmd.Agrs[0] == "get" {
+		if len(cmd.Agrs) != 2 {
 			return c.conn.Write(resp.EncodeError("ERR wrong number of arguments for CONFIG GET"))
 		}
 
-		switch args[1] {
+		switch cmd.Agrs[1] {
 		case "dir":
 			return c.conn.Write(resp.EncodeArrayBulkStrings([]string{"dir", s.db.Options.Dir}))
 		case "s.dbfilename":
@@ -177,15 +184,27 @@ func config(s *Server, c *Connection, args []string) (int, error) {
 	return c.conn.Write(resp.EncodeError("ERR unknown CONFIG subcommand"))
 }
 
-func wait(s *Server, c *Connection, args []string) (int, error) {
-	if len(args) != 2 {
+func wait(s *Server, c *Connection, cmd *Command) (int, error) {
+	replCnt := cmd.ReplCnt
+
+	if len(cmd.Agrs) != 2 {
 		return c.conn.Write(resp.EncodeError("ERR wrong number of arguments for WAIT"))
 	}
 
-	return c.conn.Write(resp.EncodeInterger(0))
+	numReps, err := strconv.Atoi(cmd.Agrs[0])
+	if err != nil {
+		return c.conn.Write(resp.EncodeError("Innalid numreplicas of arguments for WAIT"))
+	}
+
+	timeout, err := strconv.Atoi(cmd.Agrs[1])
+	if err != nil {
+		return c.conn.Write(resp.EncodeError("Innalid timeout of arguments for WAIT"))
+	}
+	log.Println("numReps:", numReps, "timeout:", timeout)
+	return c.conn.Write(resp.EncodeInterger(int64(replCnt)))
 }
 
-func info(s *Server, c *Connection, args []string) (int, error) {
+func info(s *Server, c *Connection, cmd *Command) (int, error) {
 	var infos []string = make([]string, 0, 4)
 
 	var role string
@@ -199,9 +218,9 @@ func info(s *Server, c *Connection, args []string) (int, error) {
 		"role:"+role,
 	)
 
-	if len(args) > 0 {
+	if len(cmd.Agrs) > 0 {
 		// TODO: add more info
-		log.Println("TODO: add more info for args:", args)
+		log.Println("TODO: add more info for cmd.Agrs:", cmd.Agrs)
 	}
 
 	if s.isMaster {
@@ -214,8 +233,8 @@ func info(s *Server, c *Connection, args []string) (int, error) {
 	return c.conn.Write(resp.EncodeBulkString(strings.Join(infos, "\n")))
 }
 
-func replConf(s *Server, c *Connection, args []string) (int, error) {
-	if len(args) == 0 {
+func replConf(s *Server, c *Connection, cmd *Command) (int, error) {
+	if len(cmd.Agrs) == 0 {
 		return c.conn.Write(resp.EncodeError("ERR wrong number of arguments for REPLCONFIG subcommand"))
 	}
 
@@ -233,15 +252,15 @@ func replConf(s *Server, c *Connection, args []string) (int, error) {
 		s.mu.Unlock()
 	}
 
-	switch args[0] {
+	switch cmd.Agrs[0] {
 	case "listening-port":
 		if !s.isMaster {
 			return c.conn.Write(resp.EncodeError("Not eligible to serve REPLCONF"))
 		}
-		if len(args) != 2 {
+		if len(cmd.Agrs) != 2 {
 			return c.conn.Write(resp.EncodeError("ERR wrong number of arguments for REPLCONFIG listening-port subcommand"))
 		}
-		portStr := args[1]
+		portStr := cmd.Agrs[1]
 		port, err := strconv.Atoi(portStr)
 		if err != nil {
 			return c.conn.Write(resp.EncodeError("ERR invalid listening port"))
@@ -252,20 +271,20 @@ func replConf(s *Server, c *Connection, args []string) (int, error) {
 		if !s.isMaster {
 			return c.conn.Write(resp.EncodeError("Not eligible to serve REPLCONF"))
 		}
-		if len(args) < 2 {
+		if len(cmd.Agrs) < 2 {
 			return c.conn.Write(resp.EncodeError("ERR wrong number of arguments for REPLCONFIG capa subcommand"))
 		}
-		capaStr := args[1]
+		capaStr := cmd.Agrs[1]
 		s.asMaster.slaves[c.id].capa = append(s.asMaster.slaves[c.id].capa, capaStr)
 		log.Println("Replica supports:", capaStr)
 	case "getack":
 		if s.isMaster {
 			return c.conn.Write(resp.EncodeError("Only slave can serve REPLCONF getack"))
 		}
-		if len(args) < 2 {
+		if len(cmd.Agrs) < 2 {
 			return c.conn.Write(resp.EncodeError("ERR wrong number of arguments for REPLCONFIG getack subcommand"))
 		}
-		// ignore the rest of the args for now
+		// ignore the rest of the cmd.Agrs for now
 		resArr := []string{"REPLCONF", "ACK", strconv.FormatInt(s.asSlave.offset, 10)}
 		return c.conn.Write(resp.EncodeArrayBulkStrings(resArr))
 	default:
@@ -275,11 +294,11 @@ func replConf(s *Server, c *Connection, args []string) (int, error) {
 	return c.conn.Write(resp.EncodeSimpleString(OK))
 }
 
-func psync(s *Server, c *Connection, args []string) (int, error) {
+func psync(s *Server, c *Connection, cmd *Command) (int, error) {
 	if !s.isMaster {
 		return c.conn.Write(resp.EncodeError("Not eligible to serve PSYNC"))
 	}
-	if len(args) != 2 {
+	if len(cmd.Agrs) != 2 {
 		return c.conn.Write(resp.EncodeError("ERR wrong number of arguments for PSYNC"))
 	}
 
@@ -302,6 +321,6 @@ func psync(s *Server, c *Connection, args []string) (int, error) {
 	return n + fileN, err
 }
 
-func unknown(s *Server, c *Connection, args []string) (int, error) {
+func unknown(s *Server, c *Connection, cmd *Command) (int, error) {
 	return c.conn.Write(resp.EncodeError("ERR unknown command"))
 }
