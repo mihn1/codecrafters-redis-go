@@ -11,10 +11,12 @@ type Value struct {
 	ExpiredTime int64
 }
 
+type storage map[string]Value
+
 type DB struct {
 	Options *DBOptions
-	mapping map[string]Value
-	mu      *sync.Mutex
+	storage storage
+	mu      *sync.RWMutex
 }
 
 func NewDB(options DBOptions) *DB {
@@ -24,13 +26,19 @@ func NewDB(options DBOptions) *DB {
 
 	return &DB{
 		Options: &options,
-		mapping: make(map[string]Value),
-		mu:      &sync.Mutex{},
+		storage: make(map[string]Value),
+		mu:      &sync.RWMutex{},
 	}
 }
 
+func (db *DB) Snapshot() storage {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	return db.storage
+}
+
 func (db *DB) Get(key string) (Value, error) {
-	if v, ok := db.mapping[key]; ok {
+	if v, ok := db.storage[key]; ok {
 		if v.ExpiredTime < time.Now().UnixMilli() {
 			go db.tryDelete(key)
 			return Value{}, &KeyExpiredError{}
@@ -48,17 +56,17 @@ func (db *DB) Set(key string, val string, expireAfterMillis int64) {
 	}
 
 	db.mu.Lock()
-	db.mapping[key] = value
-	db.mu.Unlock()
+	defer db.mu.Unlock()
+	db.storage[key] = value
 }
 
 func (db *DB) tryDelete(key string) {
 	db.mu.Lock()
+	defer db.mu.Unlock()
 	// Check again
-	if v, ok := db.mapping[key]; ok {
+	if v, ok := db.storage[key]; ok {
 		if v.ExpiredTime < time.Now().UnixMilli() {
-			delete(db.mapping, key)
+			delete(db.storage, key)
 		}
 	}
-	db.mu.Unlock()
 }

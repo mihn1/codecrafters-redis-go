@@ -178,12 +178,12 @@ func config(s *Server, c *Connection, cmd *Command) (int, error) {
 		if len(cmd.Args) != 2 {
 			return c.conn.Write(resp.EncodeError("wrong number of arguments for CONFIG GET"))
 		}
-
+		
 		switch cmd.Args[1] {
 		case "dir":
 			return c.conn.Write(resp.EncodeArrayBulkStrings([]string{"dir", s.db.Options.Dir}))
-		case "s.dbfilename":
-			return c.conn.Write(resp.EncodeArrayBulkStrings([]string{"s.dbfilename", s.db.Options.DbFilename}))
+		case "dbfilename":
+			return c.conn.Write(resp.EncodeArrayBulkStrings([]string{"dbfilename", s.db.Options.DbFilename}))
 		default:
 			return c.conn.Write(resp.EncodeError("unknown CONFIG parameter"))
 		}
