@@ -64,7 +64,7 @@ func TestDecodeStringNormal(t *testing.T) {
 	assert.Equal(t, "Hello, World!", str)
 }
 
-func TestDecodeString8BitInt(t *testing.T) {
+func TestDecodeStringAsInt_8bit(t *testing.T) {
 	input := []byte{0xC0, 0x7B}
 	reader := bufio.NewReader(bytes.NewReader(input))
 	str, err := decodeString(reader)
@@ -73,4 +73,26 @@ func TestDecodeString8BitInt(t *testing.T) {
 	}
 
 	assert.Equal(t, "123", str)
+}
+
+func TestDecodeStringAsInt_16bit(t *testing.T) {
+	input := []byte{0xC1, 0x39, 0x30}
+	reader := bufio.NewReader(bytes.NewReader(input))
+	str, err := decodeString(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assert.Equal(t, "12345", str)
+}
+
+func TestDecodeStringAsInt_32bit(t *testing.T) {
+	input := []byte{0xC2, 0x87, 0xD6, 0x12, 0x00}
+	reader := bufio.NewReader(bytes.NewReader(input))
+	str, err := decodeString(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assert.Equal(t, "1234567", str)
 }

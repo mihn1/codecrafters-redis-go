@@ -109,10 +109,23 @@ func decodeString(reader *bufio.Reader) (string, error) {
 			str = strconv.Itoa(int(b))
 		case 0xC1:
 			// string is a 16-bit integer
-			panic("Not implemented")
+			buf := make([]byte, 2)
+			_, err = reader.Read(buf)
+			if err != nil {
+				return "", err
+			}
+			str = strconv.FormatUint(uint64(binary.LittleEndian.Uint16(buf)), 10)
 		case 0xC2:
 			// string is a 32-bit integer
-			panic("Not implemented")
+			buf := make([]byte, 4)
+			_, err = reader.Read(buf)
+			if err != nil {
+				return "", err
+			}
+			str = strconv.FormatUint(uint64(binary.LittleEndian.Uint32(buf)), 10)
+		default:
+			// LZF compression algorithm
+			panic("LZF: Not implemented")
 		}
 
 	default:
