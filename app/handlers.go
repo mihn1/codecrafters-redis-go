@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -30,6 +31,7 @@ var commandHandlers = map[CommandType]func(*Server, *Connection, *Command) (int,
 	Config:   config,
 	ReplConf: replConf,
 	Psync:    psync,
+	Keys:     keys,
 }
 
 func HandleCommand(s *Server, c *Connection, cmd *Command) (int, error) {
@@ -178,7 +180,7 @@ func config(s *Server, c *Connection, cmd *Command) (int, error) {
 		if len(cmd.Args) != 2 {
 			return c.conn.Write(resp.EncodeError("wrong number of arguments for CONFIG GET"))
 		}
-		
+
 		switch cmd.Args[1] {
 		case "dir":
 			return c.conn.Write(resp.EncodeArrayBulkStrings([]string{"dir", s.db.Options.Dir}))
@@ -376,6 +378,32 @@ func psync(s *Server, c *Connection, cmd *Command) (int, error) {
 	fileN, err := c.conn.Write(resp.EncodeFile(buf))
 
 	return n + fileN, err
+}
+
+func keys(s *Server, c *Connection, cmd *Command) (int, error) {
+	if len(cmd.Args) != 1 {
+		return c.conn.Write(resp.EncodeError("wrong number of arguments for 'KEYS' command"))
+	}
+
+	pattern := cmd.Args[0]
+	log.Println("Pattern for matching keys:", pattern)
+	filePath := filepath.Join(s.db.Options.Dir, s.db.Options.DbFilename)
+	rdbReader := internal.NewRDBReader()
+
+	// TODO: implement read keys from rdbReader instead of load the whole file
+	data, err := rdbReader.LoadFile(filePath)
+	if err != nil {
+		return c.conn.Write(resp.EncodeError(fmt.Sprintf("can't load rdb file at %s", filePath)))
+	}
+
+	keys := make([]string, len(data))
+	i := 0
+	for key := range data {
+		keys[i] = key
+		i++
+	}
+
+	return c.conn.Write(resp.EncodeArrayBulkStrings(keys))
 }
 
 func unknown(s *Server, c *Connection, cmd *Command) (int, error) {

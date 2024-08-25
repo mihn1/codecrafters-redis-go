@@ -23,6 +23,7 @@ const (
 	Config   CommandType = "config"
 	Wait     CommandType = "wait"
 
+	Keys    CommandType = "keys"
 	Unknown CommandType = "unknown"
 )
 

@@ -28,6 +28,10 @@ type Metadata struct {
 	Value string
 }
 
+func NewRDBReader() *RDBReader {
+	return &RDBReader{}
+}
+
 func (r *RDBReader) LoadFile(filepath string) (storage, error) {
 	if _, err := os.Stat(filepath); os.IsNotExist(err) {
 		log.Println("No RDB file exists -> starting new DB")
