@@ -39,7 +39,7 @@ func (db *DB) Snapshot() storage {
 
 func (db *DB) Get(key string) (Value, error) {
 	if v, ok := db.storage[key]; ok {
-		if v.ExpiredTimeMilli < time.Now().UnixMilli() {
+		if v.ExpiredTimeMilli > 0 && v.ExpiredTimeMilli < time.Now().UnixMilli() {
 			go db.tryDelete(key)
 			return Value{}, &KeyExpiredError{}
 		}
@@ -50,14 +50,22 @@ func (db *DB) Get(key string) (Value, error) {
 
 func (db *DB) Set(key string, val string, expireAfterMillis int64) {
 	value := Value{
-		Value:            val,
-		CreatedAt:        time.Now().UnixMilli(),
-		ExpiredTimeMilli: time.Now().Add(time.Duration(expireAfterMillis) * time.Millisecond).UnixMilli(),
+		Value:     val,
+		CreatedAt: time.Now().UnixMilli(),
+	}
+	if expireAfterMillis > 0 {
+		value.ExpiredTimeMilli = time.Now().Add(time.Duration(expireAfterMillis) * time.Millisecond).UnixMilli()
+	} else {
+		value.ExpiredTimeMilli = 0 // No expire time
 	}
 
 	db.mu.Lock()
 	defer db.mu.Unlock()
 	db.storage[key] = value
+}
+
+func (db *DB) InitStorage(data storage) {
+	db.storage = data
 }
 
 func (db *DB) tryDelete(key string) {

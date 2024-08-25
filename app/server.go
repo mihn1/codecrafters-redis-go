@@ -6,12 +6,14 @@ import (
 	"log"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/codecrafters-io/redis-starter-go/app/util"
 	"github.com/codecrafters-io/redis-starter-go/internal"
 	"github.com/codecrafters-io/redis-starter-go/resp"
 )
@@ -85,6 +87,9 @@ func NewServer(options ServerOptions) *Server {
 }
 
 func (s *Server) Run() {
+	// Load the RDB file -> has to be executed first
+	s.loadRDB()
+
 	if !s.isMaster {
 		// sync with master after the server is up the running
 		masterConnection, err := syncWithMaster(s)
@@ -160,6 +165,27 @@ func (s *Server) handleConnection(c *Connection) {
 			continue
 		}
 	}
+}
+
+func (s *Server) loadRDB() {
+	if util.IsEmptyOrWhitespace(s.db.Options.Dir) || util.IsEmptyOrWhitespace(s.db.Options.DbFilename) {
+		return
+	}
+
+	rdbPath := filepath.Join(s.db.Options.Dir, s.db.Options.DbFilename)
+	rdbReader := internal.NewRDBReader()
+	data, err := rdbReader.LoadFile(rdbPath)
+	if err != nil {
+		log.Fatal("Can't load the provided RDB file")
+		panic(err)
+	}
+	if data == nil {
+		log.Println("Starting a clean DB")
+		return
+	}
+
+	log.Printf("Initing db with %d keys\n", len(data))
+	s.db.InitStorage(data)
 }
 
 func generateReplId() string {

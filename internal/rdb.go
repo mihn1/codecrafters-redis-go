@@ -58,11 +58,12 @@ func (r *RDBReader) LoadFile(filepath string) (storage, error) {
 	}
 	log.Println("Read metadatas:", metas)
 
-	data, err := r.readDatabase()
+	// TODO: implement read multiple dbs
+	dbIdx, data, err := r.readDatabase()
 	if err != nil {
 		return nil, fmt.Errorf("error reading database: %w", err)
 	}
-	log.Println("Keys loaded:", len(data))
+	log.Println("Keys loaded for db", dbIdx, ":", len(data))
 
 	checksum, err := r.readEndOfFile()
 	if err != nil {
@@ -79,7 +80,7 @@ func (r *RDBReader) readHeader() ([]byte, error) {
 		return buf, err
 	}
 	r.reader.UnreadByte()
-	return buf, nil
+	return buf[:len(buf)-1], nil
 }
 
 func (r *RDBReader) readMetadata() ([]Metadata, error) {
@@ -110,40 +111,40 @@ func (r *RDBReader) readMetadata() ([]Metadata, error) {
 	return metadatas, nil
 }
 
-// Read the actual data -> storage, expired storage, error if any
-func (r *RDBReader) readDatabase() (storage, error) {
+// Read the actual data -> db index, storage, expired storage, error if any
+func (r *RDBReader) readDatabase() (int, storage, error) {
 	var data storage
 	b, err := r.reader.ReadByte()
 	if err != nil {
-		return data, nil
+		return -1, data, nil
 	}
 	if b != rdbDatabaseIndicator {
 		r.reader.UnreadByte()
-		return data, fmt.Errorf("expect rdbDatabaseIndicator but got %v", b)
+		return -1, data, fmt.Errorf("expect rdbDatabaseIndicator but got %v", b)
 	}
 
 	// Read the index of the database
 	_, idx, err := decodeSize(r.reader)
 	if err != nil {
-		return data, err
+		return idx, data, err
 	}
 	log.Println("DB index:", idx)
 
 	b, err = r.reader.ReadByte()
 	if err != nil {
-		return data, err
+		return idx, data, err
 	}
 	if b != rdbHashtableSizeInformationIndicator {
-		return data, fmt.Errorf("expect rdbHashtableSizeInformationIndicator but got %v", b)
+		return idx, data, fmt.Errorf("expect rdbHashtableSizeInformationIndicator but got %v", b)
 	}
 
 	_, dataHTSSize, err := decodeSize(r.reader)
 	if err != nil {
-		return data, fmt.Errorf("error reading hash table size information:: %w", err)
+		return idx, data, fmt.Errorf("error reading hash table size information:: %w", err)
 	}
 	_, _, err = decodeSize(r.reader)
 	if err != nil {
-		return data, fmt.Errorf("error reading hash table size information:: %w", err)
+		return idx, data, fmt.Errorf("error reading hash table size information:: %w", err)
 	}
 	data = make(storage, dataHTSSize)
 
@@ -152,7 +153,7 @@ Loop:
 	for {
 		b, err := r.reader.ReadByte()
 		if err != nil {
-			return data, fmt.Errorf("Error reading key/value:: %w", err)
+			return idx, data, fmt.Errorf("Error reading key/value:: %w", err)
 		}
 		var val Value
 		switch b {
@@ -162,27 +163,27 @@ Loop:
 		case rdbExpiryMilis:
 			expiry, err := decodeExpiryMilis(r.reader)
 			if err != nil {
-				return data, fmt.Errorf("Error decoding expiry: %w", err)
+				return idx, data, fmt.Errorf("Error decoding expiry: %w", err)
 			}
 			val.ExpiredTimeMilli = int64(expiry)
 		case rdbExpirySeconds:
 			expiry, err := decodeExpirySeconds(r.reader)
 			if err != nil {
-				return data, fmt.Errorf("Error decoding expiry: %w", err)
+				return idx, data, fmt.Errorf("Error decoding expiry: %w", err)
 			}
 			val.ExpiredTimeMilli = int64(expiry * 1000)
 		default:
 			r.reader.UnreadByte() // Unread the format byte
 			key, valBytes, err := decodeKeyValue(r.reader)
 			if err != nil {
-				return data, err
+				return idx, data, err
 			}
 			val.Value = string(valBytes)
 			data[key] = val
 		}
 	}
 
-	return data, nil
+	return idx, data, nil
 }
 
 // Return the checksum of the file
