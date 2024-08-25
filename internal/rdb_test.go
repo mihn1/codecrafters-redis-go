@@ -96,3 +96,35 @@ func TestDecodeStringAsInt_32bit(t *testing.T) {
 
 	assert.Equal(t, "1234567", str)
 }
+
+func TestReadMetadata(t *testing.T) {
+	input := []byte{
+		0xFA, 0x09, 0x72, 0x65, 0x64, 0x69, 0x73, 0x2D,
+		0x76, 0x65, 0x72, 0x06, 0x36, 0x2E, 0x30, 0x2E, 0x31,
+		0x36,
+		0xFE,
+	}
+	reader := bufio.NewReader(bytes.NewReader(input))
+	rdb := RDBReader{reader: reader}
+
+	metas, err := rdb.readMetadata()
+	if err != nil {
+		t.Fatal("Error:", err)
+	}
+	t.Log("Metas", metas)
+	assert.Equal(t, len(metas), 1)
+	assert.Equal(t, metas[0].Name, "redis-ver")
+	assert.Equal(t, metas[0].Value, "6.0.16")
+
+}
+
+func TestLoadFile(t *testing.T) {
+	filepath := "../dump.rdb"
+	rdbReader := &RDBReader{}
+	data, err := rdbReader.LoadFile(filepath)
+	if err != nil {
+		t.Fatal("Error:", err)
+	}
+	t.Log("Data:", data)
+	assert.Equal(t, 3, len(data))
+}

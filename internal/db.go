@@ -6,9 +6,9 @@ import (
 )
 
 type Value struct {
-	Value       string
-	CreatedAt   int64
-	ExpiredTime int64
+	Value            string
+	CreatedAt        int64
+	ExpiredTimeMilli int64
 }
 
 type storage map[string]Value
@@ -39,7 +39,7 @@ func (db *DB) Snapshot() storage {
 
 func (db *DB) Get(key string) (Value, error) {
 	if v, ok := db.storage[key]; ok {
-		if v.ExpiredTime < time.Now().UnixMilli() {
+		if v.ExpiredTimeMilli < time.Now().UnixMilli() {
 			go db.tryDelete(key)
 			return Value{}, &KeyExpiredError{}
 		}
@@ -50,9 +50,9 @@ func (db *DB) Get(key string) (Value, error) {
 
 func (db *DB) Set(key string, val string, expireAfterMillis int64) {
 	value := Value{
-		Value:       val,
-		CreatedAt:   time.Now().UnixMilli(),
-		ExpiredTime: time.Now().Add(time.Duration(expireAfterMillis) * time.Millisecond).UnixMilli(),
+		Value:            val,
+		CreatedAt:        time.Now().UnixMilli(),
+		ExpiredTimeMilli: time.Now().Add(time.Duration(expireAfterMillis) * time.Millisecond).UnixMilli(),
 	}
 
 	db.mu.Lock()
@@ -65,7 +65,7 @@ func (db *DB) tryDelete(key string) {
 	defer db.mu.Unlock()
 	// Check again
 	if v, ok := db.storage[key]; ok {
-		if v.ExpiredTime < time.Now().UnixMilli() {
+		if v.ExpiredTimeMilli < time.Now().UnixMilli() {
 			delete(db.storage, key)
 		}
 	}
