@@ -7,7 +7,7 @@ import (
 
 type Value struct {
 	Value            string
-	CreatedAt        int64
+	CreatedAtMilli   int64
 	ExpiredTimeMilli int64
 }
 
@@ -48,13 +48,13 @@ func (db *DB) Get(key string) (Value, error) {
 	return Value{}, &KeyNotFoundError{}
 }
 
-func (db *DB) Set(key string, val string, expireAfterMillis int64) {
+func (db *DB) Set(key string, val string, expireAfterMilli int64) {
 	value := Value{
-		Value:     val,
-		CreatedAt: time.Now().UnixMilli(),
+		Value:          val,
+		CreatedAtMilli: time.Now().UnixMilli(),
 	}
-	if expireAfterMillis > 0 {
-		value.ExpiredTimeMilli = time.Now().Add(time.Duration(expireAfterMillis) * time.Millisecond).UnixMilli()
+	if expireAfterMilli > 0 {
+		value.ExpiredTimeMilli = time.Now().Add(time.Duration(expireAfterMilli) * time.Millisecond).UnixMilli()
 	} else {
 		value.ExpiredTimeMilli = 0 // No expire time
 	}

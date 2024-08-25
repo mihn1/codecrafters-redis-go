@@ -135,7 +135,7 @@ func (r *RDBReader) readDatabase() (int, storage, error) {
 		return idx, data, err
 	}
 	if b != rdbHashtableSizeInformationIndicator {
-		return idx, data, fmt.Errorf("expect rdbHashtableSizeInformationIndicator but got %v", b)
+		return idx, data, fmt.Errorf("expect hash table size indicator but got %v", b)
 	}
 
 	_, dataHTSSize, err := decodeSize(r.reader)
@@ -155,30 +155,17 @@ Loop:
 		if err != nil {
 			return idx, data, fmt.Errorf("Error reading key/value:: %w", err)
 		}
-		var val Value
 		switch b {
-		case rdbEndOfFile:
-			r.reader.UnreadByte()
-			break Loop // Meet end of file section
-		case rdbExpiryMilis:
-			expiry, err := decodeExpiryMilis(r.reader)
-			if err != nil {
-				return idx, data, fmt.Errorf("Error decoding expiry: %w", err)
-			}
-			val.ExpiredTimeMilli = int64(expiry)
-		case rdbExpirySeconds:
-			expiry, err := decodeExpirySeconds(r.reader)
-			if err != nil {
-				return idx, data, fmt.Errorf("Error decoding expiry: %w", err)
-			}
-			val.ExpiredTimeMilli = int64(expiry * 1000)
+		case rdbEndOfFile, rdbDatabaseIndicator:
+			r.reader.UnreadByte() // Unread the format byte
+			break Loop            // Meet end of file or another db
 		default:
 			r.reader.UnreadByte() // Unread the format byte
-			key, valBytes, err := decodeKeyValue(r.reader)
+			key, val, err := tryDecodeKeyValue(r.reader)
 			if err != nil {
 				return idx, data, err
 			}
-			val.Value = string(valBytes)
+
 			data[key] = val
 		}
 	}
@@ -202,6 +189,57 @@ func (r *RDBReader) readEndOfFile() ([]byte, error) {
 		return nil, fmt.Errorf("error reading end of file: %w", err)
 	}
 	return buf, nil
+}
+
+func tryDecodeKeyValue(reader *bufio.Reader) (string, Value, error) {
+	var key string
+	var val Value
+	b, err := reader.ReadByte()
+	if err != nil {
+		return key, val, fmt.Errorf("Error reading key/value:: %w", err)
+	}
+
+	// Decode expiry time
+	switch b {
+	case rdbExpiryMilis:
+		expiry, err := decodeExpiryMilis(reader)
+		if err != nil {
+			return key, val, fmt.Errorf("Error decoding expiry: %w", err)
+		}
+		val.ExpiredTimeMilli = int64(expiry)
+	case rdbExpirySeconds:
+		expiry, err := decodeExpirySeconds(reader)
+		if err != nil {
+			return key, val, fmt.Errorf("Error decoding expiry: %w", err)
+		}
+		val.ExpiredTimeMilli = int64(expiry) * 1000
+	default:
+		reader.UnreadByte() // Unread the format byte in case of no expiry time byte indicator
+	}
+
+	// Read the actual key-value pair
+	b, err = reader.ReadByte()
+	if err != nil {
+		return key, val, fmt.Errorf("Error reading key/value:: %w", err)
+	}
+
+	// Decode key/value
+	switch b {
+	case rdbStringEncoding: // rdbStringEncoding
+		key, err = decodeString(reader)
+		if err != nil {
+			return key, val, err
+		}
+		valStr, err := decodeString(reader)
+		if err != nil {
+			return key, val, err
+		}
+		val.Value = valStr
+	default:
+		panic(fmt.Sprintf("Not implemented for format: %v\n", b))
+	}
+
+	return key, val, nil
 }
 
 // Return the first 2 bits of the next byte, the parsed size, and the error if any
@@ -292,68 +330,24 @@ func decodeString(reader *bufio.Reader) (string, error) {
 
 func decodeExpirySeconds(reader *bufio.Reader) (uint32, error) {
 	var expirySeconds uint32
-	b, err := reader.ReadByte()
-	if err != nil {
-		return expirySeconds, err
-	}
-
-	if b != rdbExpirySeconds {
-		return expirySeconds, fmt.Errorf("invalid expiry seconds byte")
-	}
-
 	buf := make([]byte, 4)
-	_, err = reader.Read(buf)
+	_, err := reader.Read(buf)
 	if err != nil {
-		return expirySeconds, err
+		return expirySeconds, fmt.Errorf("error reading expiry in seconds: %w", err)
 	}
 	expirySeconds = binary.LittleEndian.Uint32(buf)
 	return expirySeconds, nil
 }
 
 func decodeExpiryMilis(reader *bufio.Reader) (uint64, error) {
-	var expirySeconds uint64
-	b, err := reader.ReadByte()
-	if err != nil {
-		return expirySeconds, err
-	}
-
-	if b != rdbExpiryMilis {
-		return expirySeconds, fmt.Errorf("innvalid expiry miliseconds byte")
-	}
-
+	var expiry uint64
 	buf := make([]byte, 8)
-	_, err = reader.Read(buf)
+	_, err := reader.Read(buf)
 	if err != nil {
-		return expirySeconds, err
+		return expiry, fmt.Errorf("error reading expiry in miliseconds: %w", err)
 	}
-	expirySeconds = binary.LittleEndian.Uint64(buf)
-	return expirySeconds, nil
-}
-
-// TODO: Refactor to have this function decode all the types and the expiry as well
-func decodeKeyValue(reader *bufio.Reader) (string, []byte, error) {
-	var key string
-	var val []byte
-	b, err := reader.ReadByte()
-	if err != nil {
-		return "", val, err
-	}
-	switch b {
-	case rdbStringEncoding, 0xC0, 0xC1, 0xC2:
-		key, err = decodeString(reader)
-		if err != nil {
-			return "", val, err
-		}
-		valStr, err := decodeString(reader)
-		if err != nil {
-			return "", val, err
-		}
-		val = []byte(valStr)
-	default:
-		panic("Not implemented")
-	}
-
-	return key, val, nil
+	expiry = binary.LittleEndian.Uint64(buf)
+	return expiry, nil
 }
 
 func Save(filepath string, db *DB) error {

@@ -176,7 +176,7 @@ func (s *Server) loadRDB() {
 	rdbReader := internal.NewRDBReader()
 	data, err := rdbReader.LoadFile(rdbPath)
 	if err != nil {
-		log.Fatal("Can't load the provided RDB file")
+		log.Fatal("Can't load the provided RDB file:", err)
 		panic(err)
 	}
 	if data == nil {
