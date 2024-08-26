@@ -51,7 +51,7 @@ func HandleCommand(s *Server, c *Connection, cmd *Command) error {
 	}
 
 	// Queue the command if this is a batch
-	if c.isBatch && cmd.CommandType != Exec {
+	if c.isBatch && cmd.CommandType != Exec && cmd.CommandType != Discard {
 		c.batch.handlerQueue = append(c.batch.handlerQueue, handler)
 		c.batch.commandQueue = append(c.batch.commandQueue, cmd)
 		_, err := c.conn.Write(resp.EncodeSimpleString(QUEUED))
