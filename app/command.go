@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/codecrafters-io/redis-starter-go/resp"
 )
@@ -22,14 +21,15 @@ const (
 	Psync    CommandType = "psync"
 	Config   CommandType = "config"
 	Wait     CommandType = "wait"
+	Keys     CommandType = "keys"
+	Incr     CommandType = "incr"
 
-	Keys    CommandType = "keys"
 	Unknown CommandType = "unknown"
 )
 
 type Command struct {
 	CommandType CommandType
-	Args        []string
+	Args        [][]byte
 	Raw         []byte
 	ReplCnt     int32
 }
@@ -45,35 +45,10 @@ func ParseCommandFromRESP(r resp.RESP) (*Command, error) {
 
 	command := &Command{
 		Raw:  r.Raw,
-		Args: make([]string, 0, len(r.Data)-1),
+		Args: make([][]byte, 0, len(r.Data)-1),
 	}
 
-	command.CommandType = CommandType(toLowerString(r.Data[0]))
-
-	for _, b := range r.Data[1:] {
-		command.Args = append(command.Args, toLowerString(b))
-	}
-
-	return command, nil
-}
-
-func ParseCommandFromRawBytes(buffer []byte) (*Command, error) {
-	command := &Command{
-		Raw: buffer,
-	}
-	raw := string(buffer)
-
-	tokens, err := resp.ParseArray(strings.TrimSpace(strings.ToLower(raw)))
-	if err != nil {
-		return command, err
-	}
-
-	if len(tokens) == 0 {
-		return command, fmt.Errorf("invalid command")
-	}
-
-	command.CommandType = CommandType(tokens[0])
-	command.Args = tokens[1:]
-
+	command.CommandType = CommandType(ToLowerString(r.Data[0]))
+	command.Args = append(command.Args, r.Data[1:]...)
 	return command, nil
 }

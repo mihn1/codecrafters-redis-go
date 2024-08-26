@@ -12,11 +12,6 @@ import (
 
 func syncWithMaster(s *Server) (*Connection, error) {
 	connection, err := handshake(s)
-	// if err == nil {
-	// 	log.Println("Handling master connection")
-	// 	s.asSlave.masterConnection = connection
-	// 	go s.handleConnection(s.asSlave.masterConnection)
-	// }
 	return connection, err
 }
 
@@ -66,7 +61,7 @@ func sendPing(c *Connection) error {
 		return err
 	}
 
-	if !checkSimpleString(string(res), PONG) {
+	if !CheckSimpleString(string(res), PONG) {
 		return fmt.Errorf("unable to PING: %s", res)
 	}
 
@@ -86,7 +81,7 @@ func sendReplConfig(s *Server, c *Connection) error {
 		return err
 	}
 
-	if !checkSimpleString(string(res), OK) {
+	if !CheckSimpleString(string(res), OK) {
 		return fmt.Errorf("unable to REPLCONF listening-port: %s", res)
 	}
 
@@ -101,7 +96,7 @@ func sendReplConfig(s *Server, c *Connection) error {
 		return err
 	}
 
-	if !checkSimpleString(string(res), OK) {
+	if !CheckSimpleString(string(res), OK) {
 		return fmt.Errorf("unable to REPLCONF listening-port: %s", res)
 	}
 

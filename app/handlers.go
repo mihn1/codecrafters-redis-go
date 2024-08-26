@@ -32,6 +32,7 @@ var commandHandlers = map[CommandType]func(*Server, *Connection, *Command) (int,
 	ReplConf: replConf,
 	Psync:    psync,
 	Keys:     keys,
+	Incr:    incr,
 }
 
 func HandleCommand(s *Server, c *Connection, cmd *Command) (int, error) {
@@ -96,7 +97,10 @@ func ping(s *Server, c *Connection, cmd *Command) (int, error) {
 }
 
 func echo(s *Server, c *Connection, cmd *Command) (int, error) {
-	return c.conn.Write(resp.EncodeBulkString(cmd.Args[0]))
+	if len(cmd.Args) != 1 {
+		return c.conn.Write(resp.EncodeError("wrong number of arguments for 'echo' command"))
+	}
+	return c.conn.Write(resp.EncodeBulkString(string(cmd.Args[0])))
 }
 
 func get(s *Server, c *Connection, cmd *Command) (int, error) {
@@ -104,7 +108,7 @@ func get(s *Server, c *Connection, cmd *Command) (int, error) {
 		return c.conn.Write(resp.EncodeError(fmt.Sprintf("wrong number of arguments for GET: %v", len(cmd.Args))))
 	}
 
-	v, err := s.db.Get(cmd.Args[0])
+	v, err := s.db.Get(string(cmd.Args[0]))
 	if err != nil {
 		switch e := err.(type) {
 		case *internal.KeyNotFoundError:
@@ -116,7 +120,7 @@ func get(s *Server, c *Connection, cmd *Command) (int, error) {
 		}
 	}
 
-	return c.conn.Write(resp.EncodeBulkString(v.Value))
+	return c.conn.Write(resp.EncodeBulkString(string(v.Value)))
 }
 
 func set(s *Server, c *Connection, cmd *Command) (int, error) {
@@ -137,14 +141,14 @@ func set(s *Server, c *Connection, cmd *Command) (int, error) {
 }
 
 func setInternal(s *Server, cmd *Command) error {
-	key := cmd.Args[0]
+	key := string(cmd.Args[0])
 	val := cmd.Args[1]
 	var expiryMilis int64 = s.db.Options.ExpiryTime
 
 	// resolve expiry
 	if len(cmd.Args) == 4 {
-		expiryType := cmd.Args[2]
-		expiryNum, err := strconv.ParseInt(cmd.Args[3], 10, 64)
+		expiryType := ToLowerString(cmd.Args[2])
+		expiryNum, err := strconv.ParseInt(string(cmd.Args[3]), 10, 64)
 		if err != nil {
 			return err
 		}
@@ -176,12 +180,14 @@ func config(s *Server, c *Connection, cmd *Command) (int, error) {
 		return c.conn.Write(resp.EncodeError("wrong number of arguments for CONFIG commands"))
 	}
 
-	if cmd.Args[0] == "get" {
+	subCmd := ToLowerString(cmd.Args[0])
+	if subCmd == "get" {
 		if len(cmd.Args) != 2 {
 			return c.conn.Write(resp.EncodeError("wrong number of arguments for CONFIG GET"))
 		}
 
-		switch cmd.Args[1] {
+		subCmd1 := ToLowerString(cmd.Args[1])
+		switch subCmd1 {
 		case "dir":
 			return c.conn.Write(resp.EncodeArrayBulkStrings([]string{"dir", s.db.Options.Dir}))
 		case "dbfilename":
@@ -203,12 +209,12 @@ func wait(s *Server, c *Connection, cmd *Command) (int, error) {
 		return c.conn.Write(resp.EncodeError("wrong number of arguments for WAIT"))
 	}
 
-	numRepls, err := strconv.Atoi(cmd.Args[0])
+	numRepls, err := strconv.Atoi(string(cmd.Args[0]))
 	if err != nil {
 		return c.conn.Write(resp.EncodeError("Innalid numreplicas of arguments for WAIT"))
 	}
 
-	timeout, err := strconv.Atoi(cmd.Args[1])
+	timeout, err := strconv.Atoi(string(cmd.Args[1]))
 	if err != nil {
 		return c.conn.Write(resp.EncodeError("Innalid timeout of arguments for WAIT"))
 	}
@@ -297,7 +303,8 @@ func replConf(s *Server, c *Connection, cmd *Command) (int, error) {
 		s.mu.Unlock()
 	}
 
-	switch cmd.Args[0] {
+	subCmd := ToLowerString(cmd.Args[0])
+	switch subCmd {
 	case "listening-port":
 		if !s.isMaster {
 			return c.conn.Write(resp.EncodeError("Not eligible to serve REPLCONF"))
@@ -305,7 +312,7 @@ func replConf(s *Server, c *Connection, cmd *Command) (int, error) {
 		if len(cmd.Args) != 2 {
 			return c.conn.Write(resp.EncodeError("wrong number of arguments for REPLCONFIG listening-port subcommand"))
 		}
-		portStr := cmd.Args[1]
+		portStr := string(cmd.Args[1])
 		port, err := strconv.Atoi(portStr)
 		if err != nil {
 			return c.conn.Write(resp.EncodeError("invalid listening port"))
@@ -319,7 +326,7 @@ func replConf(s *Server, c *Connection, cmd *Command) (int, error) {
 		if len(cmd.Args) < 2 {
 			return c.conn.Write(resp.EncodeError("wrong number of arguments for REPLCONFIG capa subcommand"))
 		}
-		capaStr := cmd.Args[1]
+		capaStr := string(cmd.Args[1])
 		s.asMaster.slaves[c.id].capa = append(s.asMaster.slaves[c.id].capa, capaStr)
 		log.Println("Replica supports:", capaStr)
 	case "getack":
@@ -339,7 +346,7 @@ func replConf(s *Server, c *Connection, cmd *Command) (int, error) {
 		if len(cmd.Args) < 2 {
 			return c.conn.Write(resp.EncodeError("wrong number of arguments for REPLCONFIG ACK subcommand"))
 		}
-		offset, err := strconv.ParseInt(cmd.Args[1], 10, 64)
+		offset, err := strconv.ParseInt(string(cmd.Args[1]), 10, 64)
 		if err != nil {
 			return c.conn.Write(resp.EncodeError("invalid offset"))
 		}
@@ -404,6 +411,28 @@ func keys(s *Server, c *Connection, cmd *Command) (int, error) {
 	}
 
 	return c.conn.Write(resp.EncodeArrayBulkStrings(keys))
+}
+
+func incr(s *Server, c *Connection, cmd *Command) (int, error) {
+	if len(cmd.Args) != 1 {
+		return c.conn.Write(resp.EncodeError("wrong number of arguments for 'incr' commands"))
+	}
+	key := string(cmd.Args[0])
+	val, err := s.db.Get(key)
+	if err != nil {
+		s.db.Set(key, []byte("1"), 0)
+		return c.conn.Write(resp.EncodeInterger(1))
+	}
+
+	valStr := string(val.Value)
+	valInt, err := strconv.Atoi(valStr)
+	if err != nil {
+		c.conn.Write(resp.EncodeError("value is not an integer or out of range"))
+	}
+
+	valInt++
+	s.db.Set(key, []byte(strconv.Itoa(valInt)), val.ExpiredTimeMilli)
+	return c.conn.Write(resp.EncodeInterger(int64(valInt)))
 }
 
 func unknown(s *Server, c *Connection, cmd *Command) (int, error) {

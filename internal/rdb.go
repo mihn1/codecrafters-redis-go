@@ -234,7 +234,7 @@ func tryDecodeKeyValue(reader *bufio.Reader) (string, Value, error) {
 		if err != nil {
 			return key, val, err
 		}
-		val.Value = valStr
+		val.Value = []byte(valStr)
 	default:
 		panic(fmt.Sprintf("Not implemented for format: %v\n", b))
 	}

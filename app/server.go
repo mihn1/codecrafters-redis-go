@@ -13,7 +13,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/codecrafters-io/redis-starter-go/app/util"
 	"github.com/codecrafters-io/redis-starter-go/internal"
 	"github.com/codecrafters-io/redis-starter-go/resp"
 )
@@ -168,7 +167,7 @@ func (s *Server) handleConnection(c *Connection) {
 }
 
 func (s *Server) loadRDB() {
-	if util.IsEmptyOrWhitespace(s.db.Options.Dir) || util.IsEmptyOrWhitespace(s.db.Options.DbFilename) {
+	if IsEmptyOrWhitespace(s.db.Options.Dir) || IsEmptyOrWhitespace(s.db.Options.DbFilename) {
 		return
 	}
 

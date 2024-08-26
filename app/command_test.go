@@ -14,26 +14,36 @@ func TestParseEchoCommand(t *testing.T) {
 	// *2\r\n$4\r\nECHO\r\n$3\r\nhey\r\n -> ["ECHO", "hey"]
 
 	raw := "*2\r\n$4\r\nECHO\r\n$3\r\nhey\r\n"
-	command, err := ParseCommandFromRawBytes([]byte(raw))
+	reader := bufio.NewReader(strings.NewReader(raw))
+	rp, err := resp.ReadNextResp(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	command, err := ParseCommandFromRESP(rp)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	assert.EqualValues(t, Echo, command.CommandType)
-	assert.Equal(t, []string{"hey"}, command.Args)
+	assert.Equal(t, [][]byte{[]byte("hey")}, command.Args)
 }
 
 func TestParseREPLCONF_CAPACommand(t *testing.T) {
 	// *3\r\n$8\r\nREPLCONF\r\n$4\r\ncapa\r\n$6\r\npsync2\r\n -> ["REPLCONF", "capa", "psync2"]
 
 	raw := "*3\r\n$8\r\nREPLCONF\r\n$4\r\ncapa\r\n$6\r\npsync2\r\n"
-	command, err := ParseCommandFromRawBytes([]byte(raw))
+	reader := bufio.NewReader(strings.NewReader(raw))
+	rp, err := resp.ReadNextResp(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	command, err := ParseCommandFromRESP(rp)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	assert.EqualValues(t, ReplConf, command.CommandType)
-	assert.Equal(t, []string{"hey"}, command.Args)
+	assert.Equal(t, [][]byte{[]byte("capa"), []byte("psync2")}, command.Args)
 }
 
 func TestParseEchoCommandFromRESP(t *testing.T) {
