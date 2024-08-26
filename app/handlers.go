@@ -143,7 +143,8 @@ func get(s *Server, c *Connection, cmd *Command) ([]byte, error) {
 	if err != nil {
 		switch e := err.(type) {
 		case *internal.KeyNotFoundError:
-			return resp.EncodeBulkString(""), nil
+			// return resp.EncodeBulkString(""), nil
+			return resp.EncodeNullBulkString(), nil
 		case *internal.KeyExpiredError:
 			return resp.EncodeNullBulkString(), nil
 		default:
