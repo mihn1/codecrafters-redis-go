@@ -17,6 +17,7 @@ import (
 const (
 	OK         = "OK"
 	PONG       = "PONG"
+	QUEUED     = "QUEUED"
 	FULLRESYNC = "FULLRESYNC"
 	EMPTY_FILE = "524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2"
 )
@@ -52,7 +53,8 @@ func HandleCommand(s *Server, c *Connection, cmd *Command) error {
 	// Queue the command if this is a batch
 	if c.isBatch && cmd.CommandType != Exec {
 		c.batch.handlerQueue = append(c.batch.handlerQueue, handler)
-		return nil
+		_, err := c.conn.Write(resp.EncodeSimpleString(QUEUED))
+		return err
 	}
 
 	bytes, err := handler(s, c, cmd)
