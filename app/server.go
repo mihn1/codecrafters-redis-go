@@ -156,10 +156,9 @@ func (s *Server) handleConnection(c *Connection) {
 			continue
 		}
 
-		log.Printf("SERVER: Client %v sent command: %v - %v\n", c.conn.RemoteAddr(), command.CommandType, command.Args)
+		// log.Printf("SERVER: Client %v sent command: %v - %v\n", c.conn.RemoteAddr(), command.CommandType, command.Args)
 
-		_, err = HandleCommand(s, c, command)
-		if err != nil {
+		if err := HandleCommand(s, c, command); err != nil {
 			log.Fatalf("Error handling command %v: %v", command, err)
 			continue
 		}

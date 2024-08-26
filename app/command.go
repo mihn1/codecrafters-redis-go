@@ -23,6 +23,9 @@ const (
 	Wait     CommandType = "wait"
 	Keys     CommandType = "keys"
 	Incr     CommandType = "incr"
+	Multi    CommandType = "multi"
+	Exec     CommandType = "exec"
+	Discard  CommandType = "discard"
 
 	Unknown CommandType = "unknown"
 )

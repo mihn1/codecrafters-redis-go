@@ -42,6 +42,17 @@ func EncodeInterger(val int64) []byte {
 	return append(res, '\r', '\n')
 }
 
+func EncodeArray(vals [][]byte) []byte {
+	res := make([]byte, 0, len(vals)+3)
+	res = append(res, byte(ARRAY))
+	res = strconv.AppendInt(res, int64(len(vals)), 10)
+	res = append(res, '\r', '\n')
+	for _, val := range vals {
+		res = append(res, val...)
+	}
+	return res
+}
+
 func EncodeArrayBulkStrings(vals []string) []byte {
 	res := make([]byte, 0, len(vals)+3)
 	res = append(res, byte(ARRAY))
@@ -66,6 +77,13 @@ func EncodeError(val string) []byte {
 	res := make([]byte, 0, len(val)+7)
 	res = append(res, byte(ERROR))
 	res = append(res, error_prefix...)
+	res = append(res, val...)
+	return append(res, '\r', '\n')
+}
+
+func EncodeErrorNoPrefix(val string) []byte {
+	res := make([]byte, 0, len(val)+3)
+	res = append(res, byte(ERROR))
 	res = append(res, val...)
 	return append(res, '\r', '\n')
 }

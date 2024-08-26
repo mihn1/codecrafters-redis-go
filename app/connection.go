@@ -5,19 +5,27 @@ import (
 	"net"
 )
 
+type Batch struct {
+	isError      bool
+	handlerQueue []commandHandler
+}
+
 type ConnectionID int64
 
 type Connection struct {
-	id     ConnectionID
-	conn   net.Conn
-	reader *bufio.Reader
+	id      ConnectionID
+	conn    net.Conn
+	reader  *bufio.Reader
+	isBatch bool
+	batch   *Batch
 }
 
 func NewConnection(id ConnectionID, conn net.Conn) *Connection {
 	return &Connection{
-		id:     id,
-		conn:   conn,
-		reader: bufio.NewReader(conn),
+		id:      id,
+		conn:    conn,
+		reader:  bufio.NewReader(conn),
+		isBatch: false,
 	}
 }
 
