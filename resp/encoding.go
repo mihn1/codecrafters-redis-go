@@ -7,6 +7,7 @@ import (
 const (
 	null_bulk_string = "$-1\r\n"
 	null_array       = "*-1\r\n"
+	error_prefix     = "ERR "
 )
 
 // TODO: refacter all the functions to return []byte
@@ -62,8 +63,9 @@ func EncodeFile(buf []byte) []byte {
 }
 
 func EncodeError(val string) []byte {
-	res := make([]byte, 0, len(val)+3)
+	res := make([]byte, 0, len(val)+7)
 	res = append(res, byte(ERROR))
+	res = append(res, error_prefix...)
 	res = append(res, val...)
 	return append(res, '\r', '\n')
 }

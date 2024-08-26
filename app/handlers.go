@@ -32,7 +32,7 @@ var commandHandlers = map[CommandType]func(*Server, *Connection, *Command) (int,
 	ReplConf: replConf,
 	Psync:    psync,
 	Keys:     keys,
-	Incr:    incr,
+	Incr:     incr,
 }
 
 func HandleCommand(s *Server, c *Connection, cmd *Command) (int, error) {
@@ -427,7 +427,7 @@ func incr(s *Server, c *Connection, cmd *Command) (int, error) {
 	valStr := string(val.Value)
 	valInt, err := strconv.Atoi(valStr)
 	if err != nil {
-		c.conn.Write(resp.EncodeError("value is not an integer or out of range"))
+		return c.conn.Write(resp.EncodeError("value is not an integer or out of range"))
 	}
 
 	valInt++
