@@ -53,6 +53,7 @@ func HandleCommand(s *Server, c *Connection, cmd *Command) error {
 	// Queue the command if this is a batch
 	if c.isBatch && cmd.CommandType != Exec {
 		c.batch.handlerQueue = append(c.batch.handlerQueue, handler)
+		c.batch.commandQueue = append(c.batch.commandQueue, cmd)
 		_, err := c.conn.Write(resp.EncodeSimpleString(QUEUED))
 		return err
 	}
@@ -480,6 +481,7 @@ func multi(_ *Server, c *Connection, cmd *Command) ([]byte, error) {
 	c.batch = &Batch{
 		isError:      false,
 		handlerQueue: make([]commandHandler, 0),
+		commandQueue: make([]*Command, 0),
 	}
 
 	return resp.EncodeSimpleString(OK), nil
@@ -499,8 +501,10 @@ func exec(s *Server, c *Connection, cmd *Command) ([]byte, error) {
 	}
 
 	resArray := make([][]byte, 0, len(c.batch.handlerQueue))
-	for _, handler := range c.batch.handlerQueue {
-		handledBytes, err := handler(s, c, cmd)
+	for i := 0; i < len(c.batch.handlerQueue); i++ {
+		queuedhandler := c.batch.handlerQueue[i]
+		queuedCmd := c.batch.commandQueue[i]
+		handledBytes, err := queuedhandler(s, c, queuedCmd)
 		if err != nil {
 			// Continue the execution even if a handler fails
 			c.batch.isError = true

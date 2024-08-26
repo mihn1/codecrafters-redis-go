@@ -8,6 +8,7 @@ import (
 type Batch struct {
 	isError      bool
 	handlerQueue []commandHandler
+	commandQueue []*Command
 }
 
 type ConnectionID int64
