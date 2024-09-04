@@ -27,7 +27,8 @@ const (
 	Exec     CommandType = "exec"
 	Discard  CommandType = "discard"
 	Type     CommandType = "type"
-	
+	XAdd     CommandType = "xadd"
+
 	Unknown CommandType = "unknown"
 )
 

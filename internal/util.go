@@ -12,6 +12,8 @@ func DecodeValueType(t ValueType) string {
 		return "zset"
 	case ValTypeHash:
 		return "hash"
+	case ValTypeStream:
+		return "stream"
 	default:
 		return "unknown"
 	}

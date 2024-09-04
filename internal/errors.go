@@ -23,3 +23,9 @@ func (e *KeyExpiredError) Error() string {
 func (e *KeyExpiredError) KeyErrorType() error {
 	return e
 }
+
+type TypeMismatchError struct{}
+
+func (e *TypeMismatchError) Error() string {
+	return "Type mismatch"
+}

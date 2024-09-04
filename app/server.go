@@ -137,9 +137,8 @@ func (s *Server) handleConnection(c *Connection) {
 	}()
 
 	log.Println("Handling connection from:", c.conn.RemoteAddr())
-	closed := false
 
-	for !closed {
+	for {
 		rp, err := resp.ReadNextResp(c.reader)
 		if err != nil {
 			if err == io.EOF {

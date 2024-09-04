@@ -41,6 +41,7 @@ var commandHandlersMap = map[CommandType]commandHandler{
 	Exec:     exec,
 	Discard:  discard,
 	Type:     keytype,
+	XAdd:     xadd,
 }
 
 func HandleCommand(s *Server, c *Connection, cmd *Command) error {
@@ -142,7 +143,7 @@ func get(s *Server, c *Connection, cmd *Command) ([]byte, error) {
 		return resp.EncodeError(fmt.Sprintf("wrong number of arguments for GET: %v", len(cmd.Args))), nil
 	}
 
-	v, err := s.db.Get(string(cmd.Args[0]))
+	v, err := s.db.StringGet(string(cmd.Args[0]))
 	if err != nil {
 		switch e := err.(type) {
 		case *internal.KeyNotFoundError:
@@ -155,7 +156,11 @@ func get(s *Server, c *Connection, cmd *Command) ([]byte, error) {
 		}
 	}
 
-	return resp.EncodeBulkString(string(v.Value)), nil
+	if v.Type != internal.ValTypeString {
+		return resp.EncodeError("WRONGTYPE Operation against a key holding the wrong kind of value"), nil
+	}
+
+	return resp.EncodeBulkString(string(v.Data.ToBytes())), nil
 }
 
 func set(s *Server, c *Connection, cmd *Command) ([]byte, error) {
@@ -195,7 +200,7 @@ func setInternal(s *Server, cmd *Command) error {
 		expiryMilis = expiryNum
 	}
 
-	s.db.Set(key, val, internal.ValTypeString, expiryMilis)
+	s.db.StringSet(key, val, expiryMilis)
 	return nil
 }
 
@@ -453,20 +458,20 @@ func incr(s *Server, c *Connection, cmd *Command) ([]byte, error) {
 		return resp.EncodeError("wrong number of arguments for 'incr' commands"), nil
 	}
 	key := string(cmd.Args[0])
-	val, err := s.db.Get(key)
+	val, err := s.db.StringGet(key)
 	if err != nil {
-		s.db.Set(key, []byte("1"), internal.ValTypeString, 0)
+		s.db.StringSet(key, []byte("1"), 0)
 		return resp.EncodeInterger(1), nil
 	}
 
-	valStr := string(val.Value)
+	valStr := string(val.Data.ToBytes())
 	valInt, err := strconv.Atoi(valStr)
 	if err != nil {
 		return resp.EncodeError("value is not an integer or out of range"), nil
 	}
 
 	valInt++
-	s.db.Set(key, []byte(strconv.Itoa(valInt)), internal.ValTypeString, val.ExpiredTimeMilli)
+	s.db.StringSet(key, []byte(strconv.Itoa(valInt)), val.ExpiredTimeMilli)
 	return resp.EncodeInterger(int64(valInt)), nil
 }
 
@@ -541,7 +546,7 @@ func keytype(s *Server, c *Connection, cmd *Command) ([]byte, error) {
 	}
 
 	key := string(cmd.Args[0])
-	val, err := s.db.Get(key)
+	val, err := s.db.GetVal(key)
 	if err != nil {
 		switch etype := err.(type) {
 		case internal.KeyError:
@@ -552,6 +557,23 @@ func keytype(s *Server, c *Connection, cmd *Command) ([]byte, error) {
 	}
 
 	return resp.EncodeSimpleString(internal.DecodeValueType(val.Type)), nil
+}
+
+func xadd(s *Server, c *Connection, cmd *Command) ([]byte, error) {
+	if len(cmd.Args) < 4 {
+		return resp.EncodeError("wrong number of arguments for 'xadd' command"), nil
+	}
+
+	streamKey := string(cmd.Args[0])
+	entryIDRaw := string(cmd.Args[1])
+	// TODO: parse data for now
+
+	//TODO: resolve expiry if exists
+	id, err := s.db.StreamAdd(streamKey, entryIDRaw, nil, 0)
+	if err != nil {
+		return nil, err
+	}
+	return resp.EncodeBulkString(id), nil
 }
 
 func unknown(s *Server, c *Connection, cmd *Command) ([]byte, error) {
