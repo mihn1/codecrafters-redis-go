@@ -26,7 +26,8 @@ const (
 	Multi    CommandType = "multi"
 	Exec     CommandType = "exec"
 	Discard  CommandType = "discard"
-
+	Type     CommandType = "type"
+	
 	Unknown CommandType = "unknown"
 )
 

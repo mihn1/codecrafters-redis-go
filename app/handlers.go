@@ -16,6 +16,7 @@ import (
 
 const (
 	OK         = "OK"
+	NONE       = "none"
 	PONG       = "PONG"
 	QUEUED     = "QUEUED"
 	FULLRESYNC = "FULLRESYNC"
@@ -39,6 +40,7 @@ var commandHandlersMap = map[CommandType]commandHandler{
 	Multi:    multi,
 	Exec:     exec,
 	Discard:  discard,
+	Type:     keytype,
 }
 
 func HandleCommand(s *Server, c *Connection, cmd *Command) error {
@@ -531,6 +533,25 @@ func discard(s *Server, c *Connection, cmd *Command) ([]byte, error) {
 	c.isBatch = false
 	c.batch = nil
 	return resp.EncodeSimpleString(OK), nil
+}
+
+func keytype(s *Server, c *Connection, cmd *Command) ([]byte, error) {
+	if len(cmd.Args) != 1 {
+		return resp.EncodeError("wrong number of arguments for 'type' command"), nil
+	}
+
+	key := string(cmd.Args[0])
+	val, err := s.db.Get(key)
+	if err != nil {
+		switch etype := err.(type) {
+		case internal.KeyError:
+			return resp.EncodeSimpleString(NONE), nil
+		default:
+			return resp.EncodeError(etype.Error()), nil
+		}
+	}
+
+	return resp.EncodeSimpleString(internal.DecodeValueType(val.Type)), nil
 }
 
 func unknown(s *Server, c *Connection, cmd *Command) ([]byte, error) {
