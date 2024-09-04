@@ -193,7 +193,7 @@ func setInternal(s *Server, cmd *Command) error {
 		expiryMilis = expiryNum
 	}
 
-	s.db.Set(key, val, expiryMilis)
+	s.db.Set(key, val, internal.ValTypeString, expiryMilis)
 	return nil
 }
 
@@ -453,7 +453,7 @@ func incr(s *Server, c *Connection, cmd *Command) ([]byte, error) {
 	key := string(cmd.Args[0])
 	val, err := s.db.Get(key)
 	if err != nil {
-		s.db.Set(key, []byte("1"), 0)
+		s.db.Set(key, []byte("1"), internal.ValTypeString, 0)
 		return resp.EncodeInterger(1), nil
 	}
 
@@ -464,7 +464,7 @@ func incr(s *Server, c *Connection, cmd *Command) ([]byte, error) {
 	}
 
 	valInt++
-	s.db.Set(key, []byte(strconv.Itoa(valInt)), val.ExpiredTimeMilli)
+	s.db.Set(key, []byte(strconv.Itoa(valInt)), internal.ValTypeString, val.ExpiredTimeMilli)
 	return resp.EncodeInterger(int64(valInt)), nil
 }
 

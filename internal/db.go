@@ -5,8 +5,20 @@ import (
 	"time"
 )
 
+type ValueType byte
+
+const (
+	ValTypeString ValueType = 0x0
+	ValTypeList   ValueType = 0x1
+	ValTypeSet    ValueType = 0x2
+	ValTypeZSet   ValueType = 0x3
+	ValTypeHash   ValueType = 0x4
+	ValTypeStream ValueType = 0x5
+)
+
 type Value struct {
 	Value            []byte
+	Type             ValueType
 	ExpiredTimeMilli int64
 }
 
@@ -47,9 +59,10 @@ func (db *DB) Get(key string) (Value, error) {
 	return Value{}, &KeyNotFoundError{}
 }
 
-func (db *DB) Set(key string, val []byte, expireAfterMilli int64) {
+func (db *DB) Set(key string, val []byte, valType ValueType, expireAfterMilli int64) {
 	value := Value{
 		Value: val,
+		Type:  valType,
 	}
 	if expireAfterMilli > 0 {
 		value.ExpiredTimeMilli = time.Now().Add(time.Duration(expireAfterMilli) * time.Millisecond).UnixMilli()
