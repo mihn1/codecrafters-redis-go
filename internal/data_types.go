@@ -17,24 +17,29 @@ type ValueData interface {
 	ToBytes() []byte
 }
 
+// String type
 type ValueString []byte
 
 func (v ValueString) ToBytes() []byte {
 	return v
 }
 
+// Stream type
 type StreamEntryData map[string][]byte
 
 type StreamEntryID struct {
-	Timestamp  int64
-	SequenceNo int64
+	Timestamp int64
+	Sequence  int64
 }
 
 func (e StreamEntryID) String() string {
-	return strconv.FormatInt(e.Timestamp, 10) + "-" + strconv.FormatInt(e.SequenceNo, 10)
+	return strconv.FormatInt(e.Timestamp, 10) + "-" + strconv.FormatInt(e.Sequence, 10)
 }
 
-type ValueStream map[StreamEntryID]StreamEntryData
+type ValueStream struct {
+	keys   []StreamEntryID
+	values map[StreamEntryID]StreamEntryData
+}
 
 func (v ValueStream) ToBytes() []byte {
 	bytes := make([]byte, 0)

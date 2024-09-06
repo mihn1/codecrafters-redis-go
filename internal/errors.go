@@ -29,3 +29,15 @@ type TypeMismatchError struct{}
 func (e *TypeMismatchError) Error() string {
 	return "Type mismatch"
 }
+
+type StreamKeyInvalid struct{}
+
+func (e *StreamKeyInvalid) Error() string {
+	return "Stream key invalid"
+}
+
+type StreamKeyTooSmall struct{}
+
+func (e *StreamKeyTooSmall) Error() string {
+	return "The ID specified in XADD is equal or smaller than the target stream top item"
+}

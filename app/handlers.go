@@ -566,11 +566,16 @@ func xadd(s *Server, c *Connection, cmd *Command) ([]byte, error) {
 
 	streamKey := string(cmd.Args[0])
 	entryIDRaw := string(cmd.Args[1])
-	// TODO: parse data for now
+	if entryIDRaw == "0-0" {
+		return resp.EncodeError("The ID specified in XADD must be greater than 0-0"), nil
+	}
 
 	//TODO: resolve expiry if exists
 	id, err := s.db.StreamAdd(streamKey, entryIDRaw, nil, 0)
 	if err != nil {
+		if _, ok := err.(*internal.StreamKeyTooSmall); ok {
+			return resp.EncodeError("The ID specified in XADD is equal or smaller than the target stream top item"), nil
+		}
 		return nil, err
 	}
 	return resp.EncodeBulkString(id), nil

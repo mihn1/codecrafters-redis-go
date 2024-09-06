@@ -1,6 +1,8 @@
 package internal
 
 import (
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -114,15 +116,51 @@ func (db *DB) StreamAdd(key string, entryIDRaw string, data StreamEntryData, exp
 	v, err := db.checkKey(key, ValTypeStream)
 	if err != nil || v.Type != ValTypeStream {
 		v = Value{
-			Data: make(ValueStream),
+			Data: &ValueStream{
+				keys:   make([]StreamEntryID, 0),
+				values: make(map[StreamEntryID]StreamEntryData),
+			},
 			Type: ValTypeStream,
 		}
 	}
 
-	// TODO: validate the entryId
 	var entryID StreamEntryID
-	streamData := v.Data.(ValueStream)
-	streamData[entryID] = data
+	valueStream := v.Data.(*ValueStream)
+	// TODO: validate the entryId
+	parts := strings.Split(entryIDRaw, "-")
+	switch len(parts) {
+	case 1:
+		if parts[0] != "*" {
+			return "", &StreamKeyInvalid{}
+		}
+		// TODO: generate key
+	case 2:
+		ts, err := strconv.Atoi(parts[0])
+		if err != nil {
+			return "", &StreamKeyInvalid{}
+		}
+		seq, err := strconv.Atoi(parts[1])
+		if err != nil {
+			return "", &StreamKeyInvalid{}
+		}
+		entryID = StreamEntryID{
+			Timestamp: int64(ts),
+			Sequence:  int64(seq),
+		}
+
+		// Validate the key
+		if len(valueStream.keys) > 0 {
+			lastKey := valueStream.keys[len(valueStream.keys)-1]
+			if lastKey.Timestamp > entryID.Timestamp || (lastKey.Timestamp == entryID.Timestamp && lastKey.Sequence >= entryID.Sequence) {
+				return "", &StreamKeyTooSmall{}
+			}
+		}
+	default:
+		return "", &StreamKeyInvalid{}
+	}
+
+	valueStream.keys = append(valueStream.keys, entryID)
+	valueStream.values[entryID] = data
 
 	db.mu.Lock()
 	defer db.mu.Unlock()
