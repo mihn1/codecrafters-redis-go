@@ -1,6 +1,9 @@
 package internal
 
-import "strconv"
+import (
+	"strconv"
+	"sync"
+)
 
 type ValueType byte
 
@@ -39,6 +42,7 @@ func (e StreamEntryID) String() string {
 type ValueStream struct {
 	keys   []StreamEntryID
 	values map[StreamEntryID]StreamEntryData
+	mu     sync.RWMutex
 }
 
 func (v ValueStream) ToBytes() []byte {

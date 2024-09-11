@@ -119,6 +119,7 @@ func (db *DB) StreamAdd(key string, entryIDRaw string, data StreamEntryData, exp
 			Data: &ValueStream{
 				keys:   make([]StreamEntryID, 0),
 				values: make(map[StreamEntryID]StreamEntryData),
+				mu:     sync.RWMutex{},
 			},
 			Type: ValTypeStream,
 		}
@@ -126,6 +127,9 @@ func (db *DB) StreamAdd(key string, entryIDRaw string, data StreamEntryData, exp
 
 	var entryID StreamEntryID
 	valueStream := v.Data.(*ValueStream)
+	valueStream.mu.Lock()
+	defer valueStream.mu.Unlock()
+
 	// TODO: validate the entryId
 	parts := strings.Split(entryIDRaw, "-")
 	var lastKey *StreamEntryID
@@ -146,6 +150,8 @@ func (db *DB) StreamAdd(key string, entryIDRaw string, data StreamEntryData, exp
 				entryID.Timestamp = lastKey.Timestamp + 1
 				entryID.Sequence = lastKey.Sequence + 1
 			}
+		} else {
+			entryID.Timestamp = curTS
 		}
 	case 2:
 		ts, err := strconv.ParseUint(parts[0], 10, 0)
