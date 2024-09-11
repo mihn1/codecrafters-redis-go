@@ -128,42 +128,70 @@ func (db *DB) StreamAdd(key string, entryIDRaw string, data StreamEntryData, exp
 	valueStream := v.Data.(*ValueStream)
 	// TODO: validate the entryId
 	parts := strings.Split(entryIDRaw, "-")
+	var lastKey *StreamEntryID
+	if len(valueStream.keys) > 0 {
+		lastKey = &valueStream.keys[len(valueStream.keys)-1]
+	}
+
 	switch len(parts) {
 	case 1:
 		if parts[0] != "*" {
 			return "", &StreamKeyInvalid{}
 		}
-		// TODO: generate key
-	case 2:
-		ts, err := strconv.Atoi(parts[0])
-		if err != nil {
-			return "", &StreamKeyInvalid{}
-		}
-		seq, err := strconv.Atoi(parts[1])
-		if err != nil {
-			return "", &StreamKeyInvalid{}
-		}
-		entryID = StreamEntryID{
-			Timestamp: int64(ts),
-			Sequence:  int64(seq),
-		}
-
-		// Validate the key
-		if len(valueStream.keys) > 0 {
-			lastKey := valueStream.keys[len(valueStream.keys)-1]
-			if lastKey.Timestamp > entryID.Timestamp || (lastKey.Timestamp == entryID.Timestamp && lastKey.Sequence >= entryID.Sequence) {
-				return "", &StreamKeyTooSmall{}
+		curTS := uint64(time.Now().UnixMilli())
+		if lastKey != nil {
+			if curTS > lastKey.Timestamp {
+				entryID.Timestamp = curTS
+			} else {
+				entryID.Timestamp = lastKey.Timestamp + 1
+				entryID.Sequence = lastKey.Sequence + 1
 			}
 		}
+	case 2:
+		ts, err := strconv.ParseUint(parts[0], 10, 0)
+		if err != nil {
+			return "", &StreamKeyInvalid{}
+		}
+
+		var seq uint64
+		if parts[1] == "*" { // Generate sequence
+			if lastKey != nil {
+				if ts < lastKey.Timestamp {
+					return "", &StreamKeyTooSmall{}
+				} else if ts == lastKey.Timestamp {
+					seq = lastKey.Sequence + 1
+				}
+			} else if ts == 0 {
+				// Default sequence is 0 except for timestamp == 0 then default sequence is 1
+				seq = 1
+			}
+		} else { // Fully provided stream id
+			seq, err = strconv.ParseUint(parts[1], 10, 0)
+			if err != nil {
+				return "", &StreamKeyInvalid{}
+			}
+		}
+
+		entryID.Timestamp = ts
+		entryID.Sequence = seq
 	default:
 		return "", &StreamKeyInvalid{}
 	}
 
+	// Validate the key
+	if entryID.Timestamp == 0 && entryID.Sequence == 0 {
+		return "", &StreamKeyInvalid{message: "The ID specified in XADD must be greater than 0-0"}
+	}
+	if lastKey != nil {
+		if lastKey.Timestamp > entryID.Timestamp || (lastKey.Timestamp == entryID.Timestamp && lastKey.Sequence >= entryID.Sequence) {
+			return "", &StreamKeyTooSmall{}
+		}
+	}
 	valueStream.keys = append(valueStream.keys, entryID)
 	valueStream.values[entryID] = data
 
 	db.mu.Lock()
 	defer db.mu.Unlock()
 	db.storage[key] = v
-	return entryIDRaw, nil
+	return entryID.String(), nil
 }

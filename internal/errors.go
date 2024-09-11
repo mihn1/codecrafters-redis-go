@@ -30,10 +30,15 @@ func (e *TypeMismatchError) Error() string {
 	return "Type mismatch"
 }
 
-type StreamKeyInvalid struct{}
+type StreamKeyInvalid struct {
+	message string
+}
 
 func (e *StreamKeyInvalid) Error() string {
-	return "Stream key invalid"
+	if e.message == "" {
+		return "Stream key invalid"
+	}
+	return e.message
 }
 
 type StreamKeyTooSmall struct{}

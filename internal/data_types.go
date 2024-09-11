@@ -28,12 +28,12 @@ func (v ValueString) ToBytes() []byte {
 type StreamEntryData map[string][]byte
 
 type StreamEntryID struct {
-	Timestamp int64
-	Sequence  int64
+	Timestamp uint64
+	Sequence  uint64
 }
 
 func (e StreamEntryID) String() string {
-	return strconv.FormatInt(e.Timestamp, 10) + "-" + strconv.FormatInt(e.Sequence, 10)
+	return strconv.FormatUint(e.Timestamp, 10) + "-" + strconv.FormatUint(e.Sequence, 10)
 }
 
 type ValueStream struct {
