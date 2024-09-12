@@ -213,21 +213,20 @@ func (db *DB) StreamRange(key, start, end string) ([]StreamEntryID, []StreamEntr
 	}
 
 	stream := v.Data.(*ValueStream)
-	startID, err := streamParseEntryID(start, false)
+	startIndex, err := streamFindStartIndex(stream, start)
 	if err != nil {
 		return nil, nil, err
 	}
-	endID, err := streamParseEntryID(end, true)
+	endIndex, err := streamFindEndIndex(stream, end)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	startIndex := streamFindStartIndex(stream, startID)
-	endIndex := streamFindEndIndex(stream, endID)
 	for i := startIndex; i <= endIndex; i++ {
 		ids = append(ids, stream.keys[i])
 		values = append(values, stream.values[stream.keys[i]])
 	}
+
 	return ids, values, nil
 }
 
@@ -265,7 +264,14 @@ func streamParseEntryID(entryID string, isEnd bool) (StreamEntryID, error) {
 	}
 }
 
-func streamFindStartIndex(stream *ValueStream, id StreamEntryID) int {
+func streamFindStartIndex(stream *ValueStream, idRaw string) (int, error) {
+	if idRaw == "-" {
+		return 0, nil
+	}
+	id, err := streamParseEntryID(idRaw, false)
+	if err != nil {
+		return 0, err
+	}
 	// lower bound binary search
 	l, r := 0, len(stream.keys)
 	for l < r {
@@ -277,10 +283,17 @@ func streamFindStartIndex(stream *ValueStream, id StreamEntryID) int {
 			r = m
 		}
 	}
-	return l
+	return l, nil
 }
 
-func streamFindEndIndex(stream *ValueStream, id StreamEntryID) int {
+func streamFindEndIndex(stream *ValueStream, idRaw string) (int, error) {
+	if idRaw == "+" {
+		return len(stream.keys) - 1, nil
+	}
+	id, err := streamParseEntryID(idRaw, true)
+	if err != nil {
+		return 0, err
+	}
 	// upper bound binary search
 	l, r := 0, len(stream.keys)
 	for l < r {
@@ -291,5 +304,5 @@ func streamFindEndIndex(stream *ValueStream, id StreamEntryID) int {
 			l = m + 1
 		}
 	}
-	return l - 1
+	return l - 1, nil
 }
