@@ -42,6 +42,7 @@ var commandHandlersMap = map[CommandType]commandHandler{
 	Discard:  discard,
 	Type:     keytype,
 	XAdd:     xadd,
+	XRange:   xrange,
 }
 
 func HandleCommand(s *Server, c *Connection, cmd *Command) error {
@@ -64,7 +65,7 @@ func HandleCommand(s *Server, c *Connection, cmd *Command) error {
 	bytes, err := handler(s, c, cmd)
 
 	if err != nil {
-		return fmt.Errorf("error handling command: %w", err)
+		return fmt.Errorf("error handling command %v: %w", cmd.CommandType, err)
 	}
 
 	// Nothing to propagate, the handler has handled everything
@@ -570,8 +571,17 @@ func xadd(s *Server, c *Connection, cmd *Command) ([]byte, error) {
 	// 	return resp.EncodeError("The ID specified in XADD must be greater than 0-0"), nil
 	// }
 
+	// log.Printf("streamKey: %s, entryIDRaw: %s", streamKey, entryIDRaw)
+
 	//TODO: resolve expiry if exists
-	id, err := s.db.StreamAdd(streamKey, entryIDRaw, nil, 0)
+	data := make(internal.StreamEntryData)
+	for i := 2; i < len(cmd.Args)-1; i += 2 {
+		data[string(cmd.Args[i])] = cmd.Args[i+1]
+	}
+
+	id, err := s.db.StreamAdd(streamKey, entryIDRaw, data, 0)
+
+	log.Printf("added streamKey: %s, entryIDRaw: %s, id: %s", streamKey, entryIDRaw, id)
 	if err != nil {
 		switch etype := err.(type) {
 		case *internal.StreamKeyInvalid:
@@ -583,6 +593,33 @@ func xadd(s *Server, c *Connection, cmd *Command) ([]byte, error) {
 		return nil, err
 	}
 	return resp.EncodeBulkString(id), nil
+}
+
+func xrange(s *Server, c *Connection, cmd *Command) ([]byte, error) {
+	if len(cmd.Args) != 3 {
+		return resp.EncodeError("wrong number of arguments for 'xrange' command"), nil
+	}
+
+	ids, values, err := s.db.StreamRange(string(cmd.Args[0]), string(cmd.Args[1]), string(cmd.Args[2]))
+	if err != nil {
+		return resp.EncodeError(err.Error()), nil
+	}
+
+	streamArr := make([][]byte, 0, len(ids))
+	for i := 0; i < len(ids); i++ {
+		entryArr := make([][]byte, 0, 2)
+		entryArr = append(entryArr, resp.EncodeBulkString(ids[i].String()))
+
+		valueArr := make([][]byte, 0, len(values[i])*2)
+		for key, val := range values[i] {
+			valueArr = append(valueArr, resp.EncodeBulkString(key), resp.EncodeBulkString(string(val)))
+		}
+
+		entryArr = append(entryArr, resp.EncodeArray(valueArr))
+		streamArr = append(streamArr, resp.EncodeArray(entryArr))
+	}
+
+	return resp.EncodeArray(streamArr), nil
 }
 
 func unknown(s *Server, c *Connection, cmd *Command) ([]byte, error) {

@@ -42,7 +42,7 @@ func (e StreamEntryID) String() string {
 type ValueStream struct {
 	keys   []StreamEntryID
 	values map[StreamEntryID]StreamEntryData
-	mu     sync.RWMutex
+	mu     *sync.RWMutex
 }
 
 func (v ValueStream) ToBytes() []byte {

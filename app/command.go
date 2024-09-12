@@ -28,6 +28,7 @@ const (
 	Discard  CommandType = "discard"
 	Type     CommandType = "type"
 	XAdd     CommandType = "xadd"
+	XRange   CommandType = "xrange"
 
 	Unknown CommandType = "unknown"
 )

@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"math"
 	"strconv"
 	"strings"
 	"sync"
@@ -119,7 +120,7 @@ func (db *DB) StreamAdd(key string, entryIDRaw string, data StreamEntryData, exp
 			Data: &ValueStream{
 				keys:   make([]StreamEntryID, 0),
 				values: make(map[StreamEntryID]StreamEntryData),
-				mu:     sync.RWMutex{},
+				mu:     &sync.RWMutex{},
 			},
 			Type: ValTypeStream,
 		}
@@ -200,4 +201,95 @@ func (db *DB) StreamAdd(key string, entryIDRaw string, data StreamEntryData, exp
 	defer db.mu.Unlock()
 	db.storage[key] = v
 	return entryID.String(), nil
+}
+
+func (db *DB) StreamRange(key, start, end string) ([]StreamEntryID, []StreamEntryData, error) {
+	var ids []StreamEntryID
+	var values []StreamEntryData
+
+	v, err := db.checkKey(key, ValTypeStream)
+	if err != nil || v.Type != ValTypeStream {
+		return nil, nil, &KeyNotFoundError{}
+	}
+
+	stream := v.Data.(*ValueStream)
+	startID, err := streamParseEntryID(start, false)
+	if err != nil {
+		return nil, nil, err
+	}
+	endID, err := streamParseEntryID(end, true)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	startIndex := streamFindStartIndex(stream, startID)
+	endIndex := streamFindEndIndex(stream, endID)
+	for i := startIndex; i <= endIndex; i++ {
+		ids = append(ids, stream.keys[i])
+		values = append(values, stream.values[stream.keys[i]])
+	}
+	return ids, values, nil
+}
+
+func streamParseEntryID(entryID string, isEnd bool) (StreamEntryID, error) {
+	parts := strings.Split(entryID, "-")
+	switch len(parts) {
+	case 1:
+		ts, err := strconv.ParseUint(parts[0], 10, 0)
+		if err != nil {
+			return StreamEntryID{}, &StreamKeyInvalid{}
+		}
+		id := StreamEntryID{
+			Timestamp: ts,
+			Sequence:  0,
+		}
+		if isEnd {
+			id.Sequence = math.MaxUint64
+		}
+		return id, nil
+	case 2:
+		ts, err := strconv.ParseUint(parts[0], 10, 0)
+		if err != nil {
+			return StreamEntryID{}, &StreamKeyInvalid{}
+		}
+		seq, err := strconv.ParseUint(parts[1], 10, 0)
+		if err != nil {
+			return StreamEntryID{}, &StreamKeyInvalid{}
+		}
+		return StreamEntryID{
+			Timestamp: ts,
+			Sequence:  seq,
+		}, nil
+	default:
+		return StreamEntryID{}, &StreamKeyInvalid{}
+	}
+}
+
+func streamFindStartIndex(stream *ValueStream, id StreamEntryID) int {
+	// lower bound binary search
+	l, r := 0, len(stream.keys)
+	for l < r {
+		m := (l + r) / 2
+		if stream.keys[m].Timestamp < id.Timestamp ||
+			(stream.keys[m].Timestamp == id.Timestamp && stream.keys[m].Sequence < id.Sequence) {
+			l = m + 1
+		} else {
+			r = m
+		}
+	}
+	return l
+}
+
+func streamFindEndIndex(stream *ValueStream, id StreamEntryID) int {
+	// upper bound binary search
+	l, r := 0, len(stream.keys)
+	for l < r {
+		m := (l + r) / 2
+		if stream.keys[m].Timestamp > id.Timestamp || (stream.keys[m].Timestamp == id.Timestamp && stream.keys[m].Sequence > id.Sequence) {
+			r = m
+		} else {
+			l = m + 1
+		}
+	}
+	return l - 1
 }
