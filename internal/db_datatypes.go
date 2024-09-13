@@ -49,3 +49,9 @@ func (v ValueStream) ToBytes() []byte {
 	bytes := make([]byte, 0)
 	return bytes
 }
+
+type XReadKeyResult struct {
+	Key         string
+	EntryIDs    []StreamEntryID
+	EntryValues []StreamEntryData
+}

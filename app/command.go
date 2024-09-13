@@ -29,6 +29,7 @@ const (
 	Type     CommandType = "type"
 	XAdd     CommandType = "xadd"
 	XRange   CommandType = "xrange"
+	XRead    CommandType = "xread"
 
 	Unknown CommandType = "unknown"
 )

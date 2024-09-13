@@ -43,6 +43,7 @@ var commandHandlersMap = map[CommandType]commandHandler{
 	Type:     keytype,
 	XAdd:     xadd,
 	XRange:   xrange,
+	XRead:    xread,
 }
 
 func HandleCommand(s *Server, c *Connection, cmd *Command) error {
@@ -620,6 +621,72 @@ func xrange(s *Server, c *Connection, cmd *Command) ([]byte, error) {
 	}
 
 	return resp.EncodeArray(streamArr), nil
+}
+
+func xread(s *Server, c *Connection, cmd *Command) ([]byte, error) {
+	if len(cmd.Args) < 3 {
+		return resp.EncodeError("wrong number of arguments for 'xread' command"), nil
+	}
+
+	keyStartIndex := 1
+	var blockMilli int64
+	switch string(cmd.Args[0]) {
+	case "block":
+		if len(cmd.Args) < 5 {
+			return resp.EncodeError("wrong number of arguments for 'xread block' command"), nil
+		}
+		parsedBlock, err := strconv.ParseInt(string(cmd.Args[1]), 10, 64)
+		if err != nil {
+			return resp.EncodeError("invalid block time"), nil
+		}
+		blockMilli = parsedBlock
+		keyStartIndex += 2
+	case "streams":
+		break
+	default:
+		return nil, fmt.Errorf("not implemented")
+	}
+
+	if keyStartIndex >= len(cmd.Args) || (len(cmd.Args)-keyStartIndex)%2 != 0 {
+		return resp.EncodeError("wrong number of arguments for 'xread' command"), nil
+	}
+
+	keysLen := (len(cmd.Args) - keyStartIndex) / 2
+	keys := make([]string, keysLen)
+	entryRaws := make([]string, keysLen)
+	for i := keyStartIndex; i < keyStartIndex+keysLen; i++ {
+		keys[i-keyStartIndex] = string(cmd.Args[i])
+		entryRaws[i-keyStartIndex] = string(cmd.Args[i+keysLen])
+	}
+
+	streamResults := s.db.StreamRead(keys, entryRaws, blockMilli)
+	if len(streamResults) == 0 {
+		return resp.EncodeNullBulkString(), nil
+	}
+
+	readArr := make([][]byte, 0, len(streamResults))
+
+	for i := 0; i < len(streamResults); i++ {
+		stream := streamResults[i]
+		streamArr := make([][]byte, 0, len(stream.EntryIDs)+1)
+		streamArr = append(streamArr, resp.EncodeBulkString(stream.Key))
+		listEntriesArr := make([][]byte, 0, len(stream.EntryIDs))
+		for i, id := range stream.EntryIDs {
+			entryArr := make([][]byte, 0, 2)
+			entryArr = append(entryArr, resp.EncodeBulkString(id.String()))
+			valueArr := make([][]byte, 0, len(stream.EntryValues[i])*2)
+			for key, val := range stream.EntryValues[i] {
+				valueArr = append(valueArr, resp.EncodeBulkString(key), resp.EncodeBulkString(string(val)))
+			}
+
+			entryArr = append(entryArr, resp.EncodeArray(valueArr))
+			listEntriesArr = append(listEntriesArr, resp.EncodeArray(entryArr))
+		}
+		streamArr = append(streamArr, resp.EncodeArray(listEntriesArr))
+		readArr = append(readArr, resp.EncodeArray(streamArr))
+	}
+
+	return resp.EncodeArray(readArr), nil
 }
 
 func unknown(s *Server, c *Connection, cmd *Command) ([]byte, error) {
