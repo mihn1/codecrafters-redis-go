@@ -660,14 +660,14 @@ func xread(s *Server, c *Connection, cmd *Command) ([]byte, error) {
 	}
 
 	streamResults := s.db.StreamRead(keys, entryRaws, blockMilli)
-	if len(streamResults) == 0 {
-		return resp.EncodeNullBulkString(), nil
-	}
-
 	readArr := make([][]byte, 0, len(streamResults))
 
 	for i := 0; i < len(streamResults); i++ {
 		stream := streamResults[i]
+		if len(stream.EntryIDs) == 0 {
+			continue
+		}
+
 		streamArr := make([][]byte, 0, len(stream.EntryIDs)+1)
 		streamArr = append(streamArr, resp.EncodeBulkString(stream.Key))
 		listEntriesArr := make([][]byte, 0, len(stream.EntryIDs))
@@ -686,6 +686,9 @@ func xread(s *Server, c *Connection, cmd *Command) ([]byte, error) {
 		readArr = append(readArr, resp.EncodeArray(streamArr))
 	}
 
+	if len(readArr) == 0 {
+		return resp.EncodeNullBulkString(), nil
+	}
 	return resp.EncodeArray(readArr), nil
 }
 
