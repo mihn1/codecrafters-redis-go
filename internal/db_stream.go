@@ -30,6 +30,7 @@ func (db *DB) StreamAdd(key string, entryIDRaw string, data StreamEntryData, exp
 	stream.mu.Lock()
 	defer stream.mu.Unlock()
 
+	// timestamp-sequence
 	parts := strings.Split(entryIDRaw, "-")
 	var lastKey *StreamEntryID
 	if len(stream.keys) > 0 {
@@ -92,8 +93,23 @@ func (db *DB) StreamAdd(key string, entryIDRaw string, data StreamEntryData, exp
 			return "", &StreamKeyTooSmall{}
 		}
 	}
+
+	// Add an entry to the stream
 	stream.keys = append(stream.keys, entryID)
 	stream.values[entryID] = data
+
+	if stream.ch != nil {
+		channelEntry := StreamChannelEntry{
+			key:  &key,
+			id:   &entryID,
+			data: &data,
+		}
+		select {
+		case stream.ch <- channelEntry: // send entryID to the stream's channel
+		default: // stream's channel is closed
+			stream.ch = nil
+		}
+	}
 
 	db.mu.Lock()
 	defer db.mu.Unlock()
@@ -132,7 +148,29 @@ func (db *DB) StreamRange(key, start, end string) ([]StreamEntryID, []StreamEntr
 }
 
 func (db *DB) StreamRead(keys, starts []string, blockMilli int64) []XReadKeyResult {
-	time.Sleep(time.Duration(blockMilli) * time.Millisecond)
+	if blockMilli > 0 {
+		time.Sleep(time.Duration(blockMilli) * time.Millisecond)
+	} else if blockMilli == 0 {
+		// log.Println("Block time is 0, getting first entry from", len(keys), "streams")
+		ch := make(chan StreamChannelEntry)
+		for _, key := range keys {
+			v, err := db.checkKey(key, ValTypeStream)
+			if err != nil {
+				continue
+			}
+			stream := v.Data.(*ValueStream)
+			stream.InjectChannelSafe(ch)
+			defer stream.RejectChannelSafe()
+		}
+		channelEntry := <-ch
+		return []XReadKeyResult{
+			{
+				Key:         *channelEntry.key,
+				EntryIDs:    []StreamEntryID{*channelEntry.id},
+				EntryValues: []StreamEntryData{*channelEntry.data},
+			},
+		}
+	}
 
 	res := make([]XReadKeyResult, 0, len(keys))
 	for i := 0; i < len(keys); i++ {
@@ -147,7 +185,7 @@ func (db *DB) StreamRead(keys, starts []string, blockMilli int64) []XReadKeyResu
 
 func (db *DB) streamReadSingle(key, start string) ([]StreamEntryID, []StreamEntryData, error) {
 	v, err := db.checkKey(key, ValTypeStream)
-	if err != nil || v.Type != ValTypeStream {
+	if err != nil {
 		return nil, nil, &KeyNotFoundError{}
 	}
 
@@ -155,14 +193,13 @@ func (db *DB) streamReadSingle(key, start string) ([]StreamEntryID, []StreamEntr
 	stream.mu.RLock()
 	defer stream.mu.RUnlock()
 
+	// XRead reads entries having strictly greater ID than the one specified in from
 	startIndex, err := streamFindStartIndex(stream, start, true)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	endIndex := len(stream.keys) - 1
-
-	// XRead reads entries having strictly greater ID than the one specified in from
 	entryIDs := stream.keys[startIndex : endIndex+1]
 	entryVals := make([]StreamEntryData, len(entryIDs))
 	for i, id := range entryIDs {

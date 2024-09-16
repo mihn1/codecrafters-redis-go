@@ -39,10 +39,32 @@ func (e StreamEntryID) String() string {
 	return strconv.FormatUint(e.Timestamp, 10) + "-" + strconv.FormatUint(e.Sequence, 10)
 }
 
+type StreamChannelEntry struct {
+	key  *string
+	id   *StreamEntryID
+	data *StreamEntryData
+}
+
 type ValueStream struct {
 	keys   []StreamEntryID
 	values map[StreamEntryID]StreamEntryData
 	mu     *sync.RWMutex
+	ch     chan StreamChannelEntry
+}
+
+func (v *ValueStream) InjectChannelSafe(ch chan StreamChannelEntry) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.ch = ch
+}
+
+func (v *ValueStream) RejectChannelSafe() {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.ch != nil {
+		close(v.ch)
+		v.ch = nil
+	}
 }
 
 func (v ValueStream) ToBytes() []byte {

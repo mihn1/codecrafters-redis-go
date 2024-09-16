@@ -10,7 +10,6 @@ const (
 	error_prefix     = "ERR "
 )
 
-// TODO: refacter all the functions to return []byte
 func EncodeNullBulkString() []byte {
 	return []byte(null_bulk_string)
 }

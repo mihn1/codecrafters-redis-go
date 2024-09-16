@@ -582,7 +582,7 @@ func xadd(s *Server, c *Connection, cmd *Command) ([]byte, error) {
 
 	id, err := s.db.StreamAdd(streamKey, entryIDRaw, data, 0)
 
-	log.Printf("added streamKey: %s, entryIDRaw: %s, id: %s", streamKey, entryIDRaw, id)
+	// log.Printf("added streamKey: %s, entryIDRaw: %s, id: %s", streamKey, entryIDRaw, id)
 	if err != nil {
 		switch etype := err.(type) {
 		case *internal.StreamKeyInvalid:
@@ -629,7 +629,7 @@ func xread(s *Server, c *Connection, cmd *Command) ([]byte, error) {
 	}
 
 	keyStartIndex := 1
-	var blockMilli int64
+	var blockMillis int64
 	switch string(cmd.Args[0]) {
 	case "block":
 		if len(cmd.Args) < 5 {
@@ -639,7 +639,7 @@ func xread(s *Server, c *Connection, cmd *Command) ([]byte, error) {
 		if err != nil {
 			return resp.EncodeError("invalid block time"), nil
 		}
-		blockMilli = parsedBlock
+		blockMillis = parsedBlock
 		keyStartIndex += 2
 	case "streams":
 		break
@@ -651,6 +651,10 @@ func xread(s *Server, c *Connection, cmd *Command) ([]byte, error) {
 		return resp.EncodeError("wrong number of arguments for 'xread' command"), nil
 	}
 
+	if blockMillis == 0 {
+		// c.sendBytes(resp.EncodeNullBulkString())
+	}
+
 	keysLen := (len(cmd.Args) - keyStartIndex) / 2
 	keys := make([]string, keysLen)
 	entryRaws := make([]string, keysLen)
@@ -659,7 +663,7 @@ func xread(s *Server, c *Connection, cmd *Command) ([]byte, error) {
 		entryRaws[i-keyStartIndex] = string(cmd.Args[i+keysLen])
 	}
 
-	streamResults := s.db.StreamRead(keys, entryRaws, blockMilli)
+	streamResults := s.db.StreamRead(keys, entryRaws, blockMillis)
 	readArr := make([][]byte, 0, len(streamResults))
 
 	for i := 0; i < len(streamResults); i++ {
