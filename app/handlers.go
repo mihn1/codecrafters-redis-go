@@ -651,9 +651,9 @@ func xread(s *Server, c *Connection, cmd *Command) ([]byte, error) {
 		return resp.EncodeError("wrong number of arguments for 'xread' command"), nil
 	}
 
-	if blockMillis == 0 {
-		// c.sendBytes(resp.EncodeNullBulkString())
-	}
+	// if blockMillis == 0 {
+	// 	// c.sendBytes(resp.EncodeNullBulkString())
+	// }
 
 	keysLen := (len(cmd.Args) - keyStartIndex) / 2
 	keys := make([]string, keysLen)

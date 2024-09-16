@@ -100,9 +100,9 @@ func (db *DB) StreamAdd(key string, entryIDRaw string, data StreamEntryData, exp
 
 	if stream.ch != nil {
 		channelEntry := StreamChannelEntry{
-			key:  &key,
-			id:   &entryID,
-			data: &data,
+			key:  key,
+			id:   entryID,
+			data: data,
 		}
 		select {
 		case stream.ch <- channelEntry: // send entryID to the stream's channel
@@ -150,7 +150,21 @@ func (db *DB) StreamRange(key, start, end string) ([]StreamEntryID, []StreamEntr
 func (db *DB) StreamRead(keys, starts []string, blockMilli int64) []XReadKeyResult {
 	if blockMilli > 0 {
 		time.Sleep(time.Duration(blockMilli) * time.Millisecond)
-	} else if blockMilli == 0 {
+	}
+
+	res := make([]XReadKeyResult, 0, len(keys))
+	for i := 0; i < len(keys); i++ {
+		entryIDs, entryVals, err := db.streamReadSingle(keys[i], starts[i])
+		if err != nil {
+			continue
+		}
+		if len(entryIDs) > 0 {
+			res = append(res, XReadKeyResult{Key: keys[i], EntryIDs: entryIDs, EntryValues: entryVals})
+		}
+	}
+
+	// If block time is 0 and no entry found, keep waiting for the first available entry
+	if len(res) == 0 && blockMilli == 0 {
 		// log.Println("Block time is 0, getting first entry from", len(keys), "streams")
 		ch := make(chan StreamChannelEntry)
 		for _, key := range keys {
@@ -162,23 +176,11 @@ func (db *DB) StreamRead(keys, starts []string, blockMilli int64) []XReadKeyResu
 			stream.InjectChannelSafe(ch)
 			defer stream.RejectChannelSafe()
 		}
-		channelEntry := <-ch
-		return []XReadKeyResult{
-			{
-				Key:         *channelEntry.key,
-				EntryIDs:    []StreamEntryID{*channelEntry.id},
-				EntryValues: []StreamEntryData{*channelEntry.data},
-			},
-		}
-	}
-
-	res := make([]XReadKeyResult, 0, len(keys))
-	for i := 0; i < len(keys); i++ {
-		entryIDs, entryVals, err := db.streamReadSingle(keys[i], starts[i])
-		if err != nil {
-			continue
-		}
-		res = append(res, XReadKeyResult{Key: keys[i], EntryIDs: entryIDs, EntryValues: entryVals})
+		channelEntry := <-ch // block until the first item
+		res = append(res,
+			XReadKeyResult{
+				Key: channelEntry.key, EntryIDs: []StreamEntryID{channelEntry.id}, EntryValues: []StreamEntryData{channelEntry.data},
+			})
 	}
 	return res
 }

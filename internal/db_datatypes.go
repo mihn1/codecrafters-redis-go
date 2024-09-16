@@ -40,9 +40,9 @@ func (e StreamEntryID) String() string {
 }
 
 type StreamChannelEntry struct {
-	key  *string
-	id   *StreamEntryID
-	data *StreamEntryData
+	key  string
+	id   StreamEntryID
+	data StreamEntryData
 }
 
 type ValueStream struct {
