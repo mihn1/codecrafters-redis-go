@@ -49,10 +49,10 @@ type ValueStream struct {
 	keys   []StreamEntryID
 	values map[StreamEntryID]StreamEntryData
 	mu     *sync.RWMutex
-	ch     chan StreamChannelEntry
+	ch     chan *StreamChannelEntry
 }
 
-func (v *ValueStream) InjectChannelSafe(ch chan StreamChannelEntry) {
+func (v *ValueStream) InjectChannelSafe(ch chan *StreamChannelEntry) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	v.ch = ch

@@ -81,7 +81,7 @@ func HandleCommand(s *Server, c *Connection, cmd *Command) error {
 		if isFromMaster(s, c) {
 			log.Printf("Received %v bytes from master:", len(cmd.Raw))
 			// s.mu.Lock() // Don't need to lock cause a connection is handled sequentially
-			s.asSlave.offset += int64(len(cmd.Raw)) // TODO: Handle write offset and total offset
+			s.asSlave.offset += int64(len(cmd.Raw))
 			// s.mu.Unlock()
 		}
 	}
@@ -568,13 +568,9 @@ func xadd(s *Server, c *Connection, cmd *Command) ([]byte, error) {
 
 	streamKey := string(cmd.Args[0])
 	entryIDRaw := string(cmd.Args[1])
-	// if entryIDRaw == "0-0" {
-	// 	return resp.EncodeError("The ID specified in XADD must be greater than 0-0"), nil
-	// }
-
-	// log.Printf("streamKey: %s, entryIDRaw: %s", streamKey, entryIDRaw)
 
 	//TODO: resolve expiry if exists
+
 	data := make(internal.StreamEntryData)
 	for i := 2; i < len(cmd.Args)-1; i += 2 {
 		data[string(cmd.Args[i])] = cmd.Args[i+1]
@@ -629,7 +625,7 @@ func xread(s *Server, c *Connection, cmd *Command) ([]byte, error) {
 	}
 
 	keyStartIndex := 1
-	var blockMillis int64
+	var blockMillis int64 = -1
 	switch string(cmd.Args[0]) {
 	case "block":
 		if len(cmd.Args) < 5 {

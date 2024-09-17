@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -105,8 +106,8 @@ func (db *DB) StreamAdd(key string, entryIDRaw string, data StreamEntryData, exp
 			data: data,
 		}
 		select {
-		case stream.ch <- channelEntry: // send entryID to the stream's channel
-		default: // stream's channel is closed
+		case stream.ch <- &channelEntry: // send entryID to the stream's channel
+		default: // stream's channel is full or closed
 			stream.ch = nil
 		}
 	}
@@ -148,54 +149,85 @@ func (db *DB) StreamRange(key, start, end string) ([]StreamEntryID, []StreamEntr
 }
 
 func (db *DB) StreamRead(keys, starts []string, blockMilli int64) []XReadKeyResult {
-	if blockMilli > 0 {
-		time.Sleep(time.Duration(blockMilli) * time.Millisecond)
-	}
-
-	res := make([]XReadKeyResult, 0, len(keys))
+	blockCh := time.After(time.Duration(blockMilli) * time.Millisecond)
+	// Prepare streams and start times
+	streams := make([]*ValueStream, len(keys))
 	for i := 0; i < len(keys); i++ {
-		entryIDs, entryVals, err := db.streamReadSingle(keys[i], starts[i])
+		v, err := db.checkKey(keys[i], ValTypeStream)
 		if err != nil {
 			continue
 		}
-		if len(entryIDs) > 0 {
-			res = append(res, XReadKeyResult{Key: keys[i], EntryIDs: entryIDs, EntryValues: entryVals})
+		stream := v.Data.(*ValueStream)
+		streams[i] = stream
+		if starts[i] == "$" {
+			if len(stream.keys) > 0 {
+				starts[i] = stream.keys[len(stream.keys)-1].String()
+			} else {
+				starts[i] = "0-0"
+			}
 		}
 	}
 
+	var itemsCnt int32
+	res := make([]XReadKeyResult, len(keys))
+	wg := sync.WaitGroup{}
+
+	// wait for blocked time
+	<-blockCh
+
+	// Lock all streams after waiting
+	for _, stream := range streams {
+		if stream != nil {
+			stream.mu.Lock()
+		}
+	}
+
+	// Get entries from streams
+	for i := 0; i < len(keys); i++ {
+		if streams[i] != nil {
+			wg.Add(1)
+			// Simultaneously read from multiple streams
+			go func() {
+				defer wg.Done()
+				entryIDs, entryVals, err := streamReadNoLock(streams[i], starts[i])
+				if err == nil {
+					res[i] = XReadKeyResult{Key: keys[i], EntryIDs: entryIDs, EntryValues: entryVals}
+					atomic.AddInt32(&itemsCnt, int32(len(entryIDs)))
+				}
+			}()
+		}
+	}
+	wg.Wait()
+
 	// If block time is 0 and no entry found, keep waiting for the first available entry
-	if len(res) == 0 && blockMilli == 0 {
-		// log.Println("Block time is 0, getting first entry from", len(keys), "streams")
-		ch := make(chan StreamChannelEntry)
-		for _, key := range keys {
-			v, err := db.checkKey(key, ValTypeStream)
-			if err != nil {
-				continue
+	if itemsCnt == 0 && blockMilli == 0 {
+		// log.Println("Block time is", blockMilli, "ms, waiting to get the first entry from", len(keys), "streams")
+		ch := make(chan *StreamChannelEntry, 1)
+		for _, stream := range streams {
+			// Release all streams and inject the channel
+			if streams != nil {
+				stream.mu.Unlock()
+				stream.InjectChannelSafe(ch)
+				defer stream.RejectChannelSafe()
 			}
-			stream := v.Data.(*ValueStream)
-			stream.InjectChannelSafe(ch)
-			defer stream.RejectChannelSafe()
 		}
 		channelEntry := <-ch // block until the first item
-		res = append(res,
-			XReadKeyResult{
-				Key: channelEntry.key, EntryIDs: []StreamEntryID{channelEntry.id}, EntryValues: []StreamEntryData{channelEntry.data},
-			})
+		return []XReadKeyResult{{
+			Key: channelEntry.key, EntryIDs: []StreamEntryID{channelEntry.id}, EntryValues: []StreamEntryData{channelEntry.data},
+		}}
+	} else {
+		// Release all streams for further access
+		for _, stream := range streams {
+			if stream != nil {
+				stream.mu.Unlock()
+			}
+		}
 	}
+
 	return res
 }
 
-func (db *DB) streamReadSingle(key, start string) ([]StreamEntryID, []StreamEntryData, error) {
-	v, err := db.checkKey(key, ValTypeStream)
-	if err != nil {
-		return nil, nil, &KeyNotFoundError{}
-	}
-
-	stream := v.Data.(*ValueStream)
-	stream.mu.RLock()
-	defer stream.mu.RUnlock()
-
-	// XRead reads entries having strictly greater ID than the one specified in from
+func streamReadNoLock(stream *ValueStream, start string) ([]StreamEntryID, []StreamEntryData, error) {
 	startIndex, err := streamFindStartIndex(stream, start, true)
 	if err != nil {
 		return nil, nil, err

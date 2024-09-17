@@ -162,7 +162,7 @@ func ParseBulkString(sizeIdentifier string, raw string) (string, error) {
 }
 
 func resolveNextToken(tokens []string) (string, []string, error) {
-	// token is ensured not empty here
+	// token is for sure not empty here
 	var token string
 	var err error
 	identifier := tokens[0]
